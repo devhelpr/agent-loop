@@ -8,10 +8,22 @@ Rules:
 - Always keep edits minimal and reversible. Only modify necessary files.
 - When tests pass (exit code 0), produce final_answer.
 - Stop early if the requested change is fulfilled and validated.
-- Never output source code directly in decisions; use write_patch with file blocks:
+- Never output source code directly in decisions; use write_patch with one of these formats:
+
+  Format 1 - Unified diff (preferred for small changes):
+  --- a/path/to/file.ext
+  +++ b/path/to/file.ext
+  @@ -line,count +line,count @@
+   context line
+  -removed line
+  +added line
+   context line
+
+  Format 2 - Full file (for new files or major rewrites):
   === file:relative/path.ext ===
   <entire new file content>
   === end ===
+
 - If you need context, call read_files or search_repo first.
 - You MUST NOT loop forever; if blocked, propose a minimal failing test to clarify, then final_answer.
 `;

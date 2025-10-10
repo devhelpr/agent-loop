@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { execa } from "execa";
 import fg from "fast-glob";
+import { parsePatch, applyPatch } from "diff";
 
 export async function read_files(paths: string[]) {
   const results: Record<string, string> = {};
@@ -38,18 +39,79 @@ export async function search_repo(
 export async function write_patch(patch: string) {
   const replaced: string[] = [];
 
+  console.log("[DEBUG] write_patch - patch preview:", patch.substring(0, 100));
+
+  // Try to parse as unified diff format first
+  try {
+    const parsedPatches = parsePatch(patch);
+    console.log("[DEBUG] Parsed as unified diff, patches found:", parsedPatches.length);
+    
+    if (parsedPatches.length > 0) {
+      // Apply each parsed patch
+      for (const parsedPatch of parsedPatches) {
+        // Extract filename from the patch (prefer newFileName, fall back to oldFileName)
+        let file = parsedPatch.newFileName || parsedPatch.oldFileName || "";
+        
+        // Remove common prefixes like "a/" or "b/"
+        file = file.replace(/^[ab]\//, "");
+        
+        if (!file) {
+          console.log("[DEBUG] Skipping patch with no filename");
+          continue;
+        }
+
+        console.log(`[DEBUG] Applying diff patch to file: "${file}"`);
+
+        // Read the current file content (if it exists)
+        let originalContent = "";
+        try {
+          originalContent = await fs.readFile(file, "utf8");
+        } catch (err) {
+          // File doesn't exist, try to create it if the patch is adding content
+          console.log(`[DEBUG] File "${file}" doesn't exist, treating as empty`);
+        }
+
+        // Apply the patch
+        const result = applyPatch(originalContent, parsedPatch);
+        
+        if (result === false) {
+          console.log(`[DEBUG] Failed to apply patch to "${file}"`);
+          continue;
+        }
+
+        // Create directory if it doesn't exist
+        const dir = path.dirname(file);
+        if (dir !== "." && dir !== "") {
+          console.log(`[DEBUG] Creating directory: "${dir}"`);
+          await fs.mkdir(dir, { recursive: true });
+        }
+
+        // Write the patched content
+        console.log(`[DEBUG] Writing patched file: "${file}"`);
+        await fs.writeFile(file, result, "utf8");
+        replaced.push(file);
+      }
+      
+      if (replaced.length > 0) {
+        return { applied: replaced, mode: "diff" };
+      }
+    }
+  } catch (err) {
+    console.log("[DEBUG] Not a unified diff patch, trying full-file format:", err);
+  }
+
+  // Fall back to full-file format
   // Split on === file: at the beginning of lines or at the start
   const blocks = patch.split(/(?:^|\n)=== file:/);
 
-  console.log("[DEBUG] write_patch - blocks found:", blocks.length);
-  console.log("[DEBUG] write_patch - patch preview:", patch.substring(0, 100));
+  console.log("[DEBUG] write_patch - full-file blocks found:", blocks.length);
 
   if (blocks.length > 1) {
     // Skip the first empty block
     for (let i = 1; i < blocks.length; i++) {
       const block = blocks[i];
       console.log(
-        `[DEBUG] Processing block ${i}:`,
+        `[DEBUG] Processing full-file block ${i}:`,
         block.substring(0, 50) + "..."
       );
 
