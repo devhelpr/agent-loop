@@ -12,6 +12,7 @@ export const DecisionSchema = {
           "search_repo",
           "write_patch",
           "run_cmd",
+          "evaluate_work",
           "final_answer",
         ],
         description: "The action to take",
@@ -46,6 +47,16 @@ export const DecisionSchema = {
             type: "number",
             description: "Timeout in milliseconds for run_cmd action",
           },
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description: "Files to evaluate for evaluate_work action",
+          },
+          criteria: {
+            type: "string",
+            description:
+              "Specific criteria to evaluate against (e.g., 'styling', 'functionality', 'performance')",
+          },
         },
       },
       rationale: {
@@ -68,6 +79,11 @@ export type Decision =
   | {
       action: "run_cmd";
       tool_input: { cmd: string; args?: string[]; timeoutMs?: number };
+      rationale?: string;
+    }
+  | {
+      action: "evaluate_work";
+      tool_input: { files: string[]; criteria?: string };
       rationale?: string;
     }
   | { action: "final_answer"; rationale?: string };

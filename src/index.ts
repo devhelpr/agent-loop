@@ -5,6 +5,7 @@ import {
   handleSearchRepo,
   handleWritePatch,
   handleRunCmd,
+  handleEvaluateWork,
 } from "./handlers.js";
 import { makeOpenAICall } from "./makeOpenAICall.js";
 import { openai } from "./openai.js";
@@ -223,6 +224,11 @@ When ready to speak to the user, choose final_answer.
       continue;
     }
 
+    if (d.action === "evaluate_work") {
+      await handleEvaluateWork(d, transcript, logConfig);
+      continue;
+    }
+
     // Unknown action
     log(logConfig, "step", "Unknown action encountered", {
       action: (d as any).action,
@@ -241,10 +247,10 @@ When ready to speak to the user, choose final_answer.
   return result;
 }
 
-//   "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
+//   "Create two files: 1) util/titleCase.ts with a titleCase function, and 2) my-file.ts that imports and exports the titleCase function. Both files should be created from scratch."
 //   "Create a my-website.html which is beautifull and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
 runCodingAgent(
-  "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
+  "Create a my-website.html which is beautiful/modern/fancy/responsive and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
 )
   .then((r) => {
     console.log("\n=== FINAL RESULT ===", r);
