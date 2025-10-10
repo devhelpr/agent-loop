@@ -7,6 +7,36 @@ import * as path from "node:path";
 console.log("Using OpenAI API key:", process.env.OPENAI_API_KEY);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/** ---------- Logging ---------- */
+
+interface LogConfig {
+  enabled: boolean;
+  logSteps?: boolean;
+  logToolCalls?: boolean;
+  logToolResults?: boolean;
+  logDecisions?: boolean;
+  logTranscript?: boolean;
+}
+
+function log(config: LogConfig, category: string, message: string, data?: any) {
+  if (!config.enabled) return;
+
+  const shouldLog =
+    (category === "step" && config.logSteps) ||
+    (category === "tool-call" && config.logToolCalls) ||
+    (category === "tool-result" && config.logToolResults) ||
+    (category === "decision" && config.logDecisions) ||
+    (category === "transcript" && config.logTranscript);
+
+  if (shouldLog) {
+    console.log(`[${category.toUpperCase()}] ${message}`);
+    if (data !== undefined) {
+      console.log(JSON.stringify(data, null, 2));
+    }
+  }
+}
+
 /** ---------- Tooling layer ---------- */
 
 async function read_files(paths: string[]) {
@@ -148,10 +178,24 @@ type MessageArray = Array<{
   content: string;
 }>;
 
-async function handleReadFiles(decision: Decision, transcript: MessageArray) {
+async function handleReadFiles(
+  decision: Decision,
+  transcript: MessageArray,
+  logConfig: LogConfig
+) {
   if (decision.action !== "read_files") return;
 
+  log(logConfig, "tool-call", "Executing read_files", {
+    paths: decision.tool_input.paths,
+  });
   const out = await read_files(decision.tool_input.paths ?? []);
+  log(logConfig, "tool-result", "read_files completed", {
+    fileCount: Object.keys(out).length,
+    totalBytes: Object.values(out).reduce(
+      (sum, content) => sum + content.length,
+      0
+    ),
+  });
   transcript.push({
     role: "assistant",
     content: `read_files:${JSON.stringify({
@@ -169,10 +213,20 @@ async function handleReadFiles(decision: Decision, transcript: MessageArray) {
   }
 }
 
-async function handleSearchRepo(decision: Decision, transcript: MessageArray) {
+async function handleSearchRepo(
+  decision: Decision,
+  transcript: MessageArray,
+  logConfig: LogConfig
+) {
   if (decision.action !== "search_repo") return;
 
+  log(logConfig, "tool-call", "Executing search_repo", {
+    query: decision.tool_input.query,
+  });
   const out = await search_repo(decision.tool_input.query);
+  log(logConfig, "tool-result", "search_repo completed", {
+    hitCount: out.hits.length,
+  });
   transcript.push({
     role: "assistant",
     content: `search_repo:${JSON.stringify(out)}`,
@@ -183,11 +237,16 @@ async function handleWritePatch(
   decision: Decision,
   transcript: MessageArray,
   writes: number,
-  caps: { maxWrites: number }
+  caps: { maxWrites: number },
+  logConfig: LogConfig
 ): Promise<number> {
   if (decision.action !== "write_patch") return writes;
 
   if (writes >= caps.maxWrites) {
+    log(logConfig, "tool-result", "write_patch failed: cap exceeded", {
+      writes,
+      maxWrites: caps.maxWrites,
+    });
     transcript.push({
       role: "assistant",
       content: `write_patch:ERROR: write cap exceeded`,
@@ -195,7 +254,11 @@ async function handleWritePatch(
     return writes;
   }
 
+  log(logConfig, "tool-call", "Executing write_patch", {
+    patchLength: String(decision.tool_input.patch || "").length,
+  });
   const out = await write_patch(String(decision.tool_input.patch || ""));
+  log(logConfig, "tool-result", "write_patch completed", out);
   const newWrites = writes + 1;
   transcript.push({
     role: "assistant",
@@ -209,11 +272,16 @@ async function handleRunCmd(
   transcript: MessageArray,
   cmds: number,
   caps: { maxCmds: number },
-  testCmd: { cmd: string; args?: string[] }
+  testCmd: { cmd: string; args?: string[] },
+  logConfig: LogConfig
 ): Promise<number> {
   if (decision.action !== "run_cmd") return cmds;
 
   if (cmds >= caps.maxCmds) {
+    log(logConfig, "tool-result", "run_cmd failed: cap exceeded", {
+      cmds,
+      maxCmds: caps.maxCmds,
+    });
     transcript.push({
       role: "assistant",
       content: `run_cmd:ERROR: command cap exceeded`,
@@ -222,7 +290,14 @@ async function handleRunCmd(
   }
 
   const { cmd, args = [], timeoutMs } = decision.tool_input;
+  log(logConfig, "tool-call", "Executing run_cmd", { cmd, args, timeoutMs });
   const out = await run_cmd(cmd, args, { timeoutMs });
+  log(logConfig, "tool-result", "run_cmd completed", {
+    ok: out.ok,
+    code: out.code,
+    stdoutLength: out.stdout.length,
+    stderrLength: out.stderr.length,
+  });
   const newCmds = cmds + 1;
   transcript.push({
     role: "assistant",
@@ -249,6 +324,7 @@ export async function runCodingAgent(
     maxSteps?: number;
     testCommand?: { cmd: string; args?: string[] };
     hardCaps?: { maxWrites?: number; maxCmds?: number };
+    logging?: LogConfig;
   }
 ) {
   const maxSteps = opts?.maxSteps ?? 20;
@@ -257,8 +333,22 @@ export async function runCodingAgent(
     args: ["test", "--silent"],
   };
   const caps = { maxWrites: 10, maxCmds: 20, ...(opts?.hardCaps ?? {}) };
+  const logConfig: LogConfig = {
+    enabled: true,
+    logSteps: true,
+    logToolCalls: true,
+    logToolResults: true,
+    logDecisions: true,
+    logTranscript: false,
+    ...opts?.logging,
+  };
   let writes = 0,
     cmds = 0;
+
+  log(logConfig, "step", `Starting coding agent with goal: ${userGoal}`, {
+    maxSteps,
+    caps,
+  });
 
   const system = `
 You are a coding agent that iteratively edits a repository to satisfy the user's goal.
@@ -291,6 +381,14 @@ When ready to speak to the user, choose final_answer.
   ];
 
   for (let step = 1; step <= maxSteps; step++) {
+    log(logConfig, "step", `=== Step ${step}/${maxSteps} ===`, {
+      writes,
+      cmds,
+    });
+    log(logConfig, "transcript", "Current transcript length", {
+      messageCount: transcript.length,
+    });
+
     const decisionResp = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: transcript,
@@ -304,7 +402,10 @@ When ready to speak to the user, choose final_answer.
       decisionResp.choices[0].message.content || "{}"
     ) as Decision;
 
+    log(logConfig, "decision", `Agent decided: ${d.action}`, { decision: d });
+
     if (d.action === "final_answer") {
+      log(logConfig, "step", "Agent chose final_answer - generating summary");
       // Produce a succinct status + next steps for the user
       const final = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -317,44 +418,51 @@ When ready to speak to the user, choose final_answer.
           },
         ],
       });
-      return {
+      const result = {
         steps: step,
         message: final.choices[0].message.content || "No response",
       };
+      log(logConfig, "step", "Agent completed successfully", result);
+      return result;
     }
 
     // Execute appropriate tool handler
     if (d.action === "read_files") {
-      await handleReadFiles(d, transcript);
+      await handleReadFiles(d, transcript, logConfig);
       continue;
     }
 
     if (d.action === "search_repo") {
-      await handleSearchRepo(d, transcript);
+      await handleSearchRepo(d, transcript, logConfig);
       continue;
     }
 
     if (d.action === "write_patch") {
-      writes = await handleWritePatch(d, transcript, writes, caps);
+      writes = await handleWritePatch(d, transcript, writes, caps, logConfig);
       continue;
     }
 
     if (d.action === "run_cmd") {
-      cmds = await handleRunCmd(d, transcript, cmds, caps, testCmd);
+      cmds = await handleRunCmd(d, transcript, cmds, caps, testCmd, logConfig);
       continue;
     }
 
     // Unknown action
+    log(logConfig, "step", "Unknown action encountered", {
+      action: (d as any).action,
+    });
     transcript.push({
       role: "assistant",
       content: `ERROR: Unknown action ${JSON.stringify(d)}`,
     });
   }
 
-  return {
+  const result = {
     steps: maxSteps,
     message: "Max steps reached without finalization.",
   };
+  log(logConfig, "step", "Agent reached max steps without completion", result);
+  return result;
 }
 
 /** ---------- Example usage ----------
@@ -362,7 +470,17 @@ When ready to speak to the user, choose final_answer.
  * and fix any TypeScript/ESLint errors encountered.”
  */
 runCodingAgent(
-  "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
+  "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal.",
+  {
+    logging: {
+      enabled: true,
+      logSteps: true,
+      logToolCalls: true,
+      logToolResults: true,
+      logDecisions: true,
+      logTranscript: false, // Set to true if you want to see full transcript
+    },
+  }
 )
-  .then((r) => console.log(r))
+  .then((r) => console.log("\n=== FINAL RESULT ===", r))
   .catch(console.error);
