@@ -122,6 +122,7 @@ const DecisionSchema = {
   strict: false,
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       action: {
         type: "string",
@@ -132,25 +133,44 @@ const DecisionSchema = {
           "run_cmd",
           "final_answer",
         ],
+        description: "The action to take",
       },
       tool_input: {
         type: "object",
+        description: "Input parameters for the selected tool",
         properties: {
           paths: {
             type: "array",
             items: { type: "string" },
+            description: "File paths for read_files action",
           },
-          query: { type: "string" },
-          patch: { type: "string" },
-          cmd: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search query for search_repo action",
+          },
+          patch: {
+            type: "string",
+            description: "Patch content for write_patch action",
+          },
+          cmd: {
+            type: "string",
+            description: "Command to run for run_cmd action",
+          },
           args: {
             type: "array",
             items: { type: "string" },
+            description: "Command arguments for run_cmd action",
           },
-          timeoutMs: { type: "number" },
+          timeoutMs: {
+            type: "number",
+            description: "Timeout in milliseconds for run_cmd action",
+          },
         },
       },
-      rationale: { type: "string" }, // short, for logs
+      rationale: {
+        type: "string",
+        description: "Brief explanation of why this action was chosen",
+      },
     },
     required: ["action"],
   },
@@ -398,9 +418,49 @@ When ready to speak to the user, choose final_answer.
       },
     });
 
-    const d = JSON.parse(
-      decisionResp.choices[0].message.content || "{}"
-    ) as Decision;
+    const rawContent = decisionResp.choices[0].message.content || "{}";
+    let d: Decision;
+
+    try {
+      const parsed = JSON.parse(rawContent);
+      log(logConfig, "decision", "Raw response parsed", { parsed });
+
+      // Handle case where the decision is nested under properties
+      if (parsed.properties?.action) {
+        log(
+          logConfig,
+          "decision",
+          "Decision found in properties, extracting..."
+        );
+        d = {
+          action: parsed.properties.action,
+          tool_input: parsed.properties.tool_input || {},
+          rationale: parsed.properties.rationale,
+        } as Decision;
+      } else if (parsed.action) {
+        d = parsed as Decision;
+      } else {
+        log(
+          logConfig,
+          "decision",
+          "No action found in response, defaulting to final_answer"
+        );
+        d = {
+          action: "final_answer",
+          rationale: "No valid action in response",
+        } as Decision;
+      }
+    } catch (error) {
+      log(logConfig, "decision", "Failed to parse decision", {
+        rawContent,
+        error,
+      });
+      // Default to final_answer if parsing fails
+      d = {
+        action: "final_answer",
+        rationale: "Parsing error occurred",
+      } as Decision;
+    }
 
     log(logConfig, "decision", `Agent decided: ${d.action}`, { decision: d });
 
