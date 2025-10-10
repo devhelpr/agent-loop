@@ -89,10 +89,9 @@ async function run_cmd(
 
 const DecisionSchema = {
   name: "AgentDecision",
-  strict: true,
+  strict: false,
   schema: {
     type: "object",
-    additionalProperties: false,
     properties: {
       action: {
         type: "string",
@@ -106,7 +105,6 @@ const DecisionSchema = {
       },
       tool_input: {
         type: "object",
-        additionalProperties: false,
         properties: {
           paths: {
             type: "array",
@@ -121,7 +119,6 @@ const DecisionSchema = {
           },
           timeoutMs: { type: "number" },
         },
-        required: [],
       },
       rationale: { type: "string" }, // short, for logs
     },
