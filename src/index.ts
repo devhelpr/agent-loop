@@ -7,7 +7,12 @@ import {
   handleRunCmd,
   handleEvaluateWork,
 } from "./handlers.js";
-import { makeOpenAICall } from "./makeOpenAICall.js";
+import {
+  makeOpenAICall,
+  getTokenStats,
+  resetTokenStats,
+  displayTokenSummary,
+} from "./makeOpenAICall.js";
 import { openai } from "./openai.js";
 import { prompt } from "./prompt.js";
 
@@ -35,6 +40,9 @@ export async function runCodingAgent(
     logging?: LogConfig;
   }
 ) {
+  // Reset token statistics for this run
+  resetTokenStats();
+
   const maxSteps = opts?.maxSteps ?? 20;
   const testCmd = opts?.testCommand ?? {
     cmd: "npm",
@@ -107,9 +115,16 @@ When ready to speak to the user, choose final_answer.
     } catch (error) {
       logError(logConfig, "OpenAI API call failed after all retries", error);
 
+      // Get token statistics even on error
+      const tokenStats = getTokenStats();
+
+      // Display token summary even on error
+      displayTokenSummary(tokenStats);
+
       return {
         steps: step,
         message: `OpenAI API call failed at step ${step}: ${error}`,
+        tokenUsage: tokenStats,
       };
     }
 
@@ -199,7 +214,18 @@ When ready to speak to the user, choose final_answer.
         message:
           final.choices[0].message.content || "Task completed successfully",
       };
-      log(logConfig, "step", "Agent completed successfully", result);
+
+      // Get final token statistics
+      const tokenStats = getTokenStats();
+
+      log(logConfig, "step", "Agent completed successfully", {
+        ...result,
+        tokenUsage: tokenStats,
+      });
+
+      // Display token summary
+      displayTokenSummary(tokenStats);
+
       return result;
     }
 
