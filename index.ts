@@ -4,9 +4,9 @@ import { execa } from "execa";
 import * as fg from "fast-glob";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
+console.log("Using OpenAI API key:", process.env.OPENAI_API_KEY);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 /** ---------- Tooling layer ---------- */
 
 async function read_files(paths: string[]) {
@@ -104,7 +104,10 @@ const DecisionSchema = {
           "final_answer",
         ],
       },
-      tool_input: { type: "object" },
+      tool_input: {
+        type: "object",
+        additionalProperties: true,
+      },
       rationale: { type: "string" }, // short, for logs
     },
     required: ["action"],
