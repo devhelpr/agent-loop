@@ -11,6 +11,19 @@ import fg from "fast-glob";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
+console.log(
+  "🚀 Starting agent - API key:",
+  process.env.OPENAI_API_KEY ? "***set***" : "❌ NOT SET"
+);
+console.log(
+  "📊 Environment - Console logging:",
+  process.env.AGENT_CONSOLE_LOGGING || "default"
+);
+console.log(
+  "📁 Environment - File logging:",
+  process.env.AGENT_FILE_LOGGING || "default"
+);
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /** ---------- Logging ---------- */
@@ -500,14 +513,41 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    const decisionResp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: transcript,
-      response_format: {
-        type: "json_schema",
-        json_schema: DecisionSchema,
-      },
-    });
+    log(logConfig, "step", "Making OpenAI API call...");
+
+    let decisionResp: Awaited<
+      ReturnType<typeof openai.chat.completions.create>
+    >;
+    try {
+      // Add a timeout to the API call
+      const apiCallPromise = openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: transcript,
+        response_format: {
+          type: "json_schema",
+          json_schema: DecisionSchema,
+        },
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("OpenAI API call timeout after 30 seconds")),
+          30000
+        )
+      );
+
+      decisionResp = await Promise.race([apiCallPromise, timeoutPromise]);
+      log(logConfig, "step", "OpenAI API call completed");
+    } catch (error) {
+      log(logConfig, "step", "OpenAI API call failed", {
+        error: String(error),
+      });
+      // Return early with an error message
+      return {
+        steps: step,
+        message: `OpenAI API call failed at step ${step}: ${error}`,
+      };
+    }
 
     const rawContent = decisionResp.choices[0].message.content || "{}";
     let d: Decision;
