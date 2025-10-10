@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node --experimental-transform-types --env-file=.env index.ts"
+    "start": "node --experimental-transform-types --env-file=.env src/index.ts"
   },
   "dependencies": {
     "diff": "^8.0.2",
