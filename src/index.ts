@@ -5,6 +5,7 @@ import {
   handleSearchRepo,
   handleWritePatch,
   handleRunCmd,
+  handleEvaluateWork,
 } from "./handlers.js";
 import { makeOpenAICall } from "./makeOpenAICall.js";
 import { openai } from "./openai.js";
@@ -220,6 +221,11 @@ When ready to speak to the user, choose final_answer.
 
     if (d.action === "run_cmd") {
       cmds = await handleRunCmd(d, transcript, cmds, caps, testCmd, logConfig);
+      continue;
+    }
+
+    if (d.action === "evaluate_work") {
+      await handleEvaluateWork(d, transcript, logConfig);
       continue;
     }
 
