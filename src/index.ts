@@ -279,14 +279,16 @@ When ready to speak to the user, choose final_answer.
   return result;
 }
 
+//   "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
+//   "Create a my-website.html which is beautifull and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
 runCodingAgent(
   "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
 )
   .then((r) => {
     console.log("\n=== FINAL RESULT ===", r);
-    process.exit(0); // Exit successfully
+    process.exit(0);
   })
   .catch((error) => {
     console.error("Agent execution failed:", error);
-    process.exit(1); // Exit with error code
+    process.exit(1);
   });
