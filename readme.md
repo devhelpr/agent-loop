@@ -8,8 +8,16 @@ It runs openai LLM calls in a loop and depending on the response, it can read fi
 
 This uses manual tool calls instead of using the OpenAI function calling feature, allowing for more control over the process.
 
-## Environment Variables for Logging:
+## Environment Variables:
 
+- OPENAI_API_KEY : Your OpenAI API key (required)
 - AGENT_CONSOLE_LOGGING=false : Disable console logging (default: true)
 - AGENT_FILE_LOGGING=true : Enable file logging (default: false)
 - AGENT_LOG_FILE=path/to/log : Log file path (default: agent-log.txt)
+
+## Installation
+
+```bash
+npm install
+npm start
+```
