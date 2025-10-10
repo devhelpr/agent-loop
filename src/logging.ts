@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import * as fs from "fs";
 
 export interface LogConfig {
   enabled: boolean;
@@ -127,11 +127,11 @@ export function log(
     if (fileLoggingEnabled && config.fileLogging?.filePath) {
       const logContent = logLine + (dataLine ? "\n" + dataLine : "") + "\n";
       // Use fs.appendFile to avoid blocking the main thread
-      fs.appendFile(config.fileLogging.filePath, logContent, "utf8").catch(
-        (err) => {
-          console.error("Failed to write to log file:", err);
-        }
-      );
+      try {
+        fs.appendFileSync(config.fileLogging.filePath, logContent, "utf8");
+      } catch (err) {
+        console.error("Failed to write to log file:", err);
+      }
     }
   }
 }
