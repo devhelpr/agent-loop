@@ -270,25 +270,25 @@ export async function write_patch(patch: string) {
       const file = filePathLine.replace(/\s*===\s*$/, "").trim();
       console.log(`[DEBUG] Extracted filename: "${file}"`);
 
-      // Find the content between the header and === end ===
-      const contentLines: string[] = [];
-      let foundEnd = false;
+      // Extract content between header and end marker more carefully
+      const endMarkerIndex = block.indexOf("=== end ===");
+      let body: string;
 
-      for (let j = 1; j < lines.length; j++) {
-        const line = lines[j];
-        if (line.trim() === "=== end ===") {
-          foundEnd = true;
-          break;
-        }
-        contentLines.push(line);
+      if (endMarkerIndex === -1) {
+        // No end marker found, take everything after the first line
+        body = lines.slice(1).join("\n");
+      } else {
+        // Extract content before the end marker
+        const contentBeforeEnd = block.substring(
+          lines[0].length,
+          endMarkerIndex
+        );
+        // Remove leading newline if present (from the header line)
+        body = contentBeforeEnd.startsWith("\n")
+          ? contentBeforeEnd.substring(1)
+          : contentBeforeEnd;
+        // The content should now preserve the original newline structure including trailing newlines
       }
-
-      if (!foundEnd) {
-        // If no end marker found, take everything after the first line
-        contentLines.push(...lines.slice(1));
-      }
-
-      const body = contentLines.join("\n");
       console.log(
         `[DEBUG] File content (${body.length} chars):`,
         body.substring(0, 100) + "..."
