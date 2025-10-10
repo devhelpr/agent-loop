@@ -106,7 +106,22 @@ const DecisionSchema = {
       },
       tool_input: {
         type: "object",
-        additionalProperties: true,
+        additionalProperties: false,
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+          },
+          query: { type: "string" },
+          patch: { type: "string" },
+          cmd: { type: "string" },
+          args: {
+            type: "array",
+            items: { type: "string" },
+          },
+          timeoutMs: { type: "number" },
+        },
+        required: [],
       },
       rationale: { type: "string" }, // short, for logs
     },
