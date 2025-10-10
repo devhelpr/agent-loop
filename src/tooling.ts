@@ -364,11 +364,46 @@ export async function evaluate_work(
       files_analyzed.push(file);
     } catch (err) {
       console.log(`[DEBUG] Could not read file ${file}:`, err);
+      // Continue processing other files even if one fails
     }
   }
 
+  // If no files could be read, return a default evaluation
+  if (files_analyzed.length === 0) {
+    return {
+      evaluation: {
+        overall_score: 0,
+        strengths: [],
+        improvements: ["No files could be read for evaluation"],
+        specific_suggestions: [{
+          file: "evaluation",
+          suggestion: "Ensure all specified files exist and are accessible",
+          priority: "high" as const,
+        }],
+      },
+      files_analyzed: [],
+      criteria_used: criteria || "general",
+    };
+  }
+
   // Analyze the files based on criteria
-  const analysis = analyzeFiles(file_contents, criteria || "general");
+  let analysis;
+  try {
+    analysis = analyzeFiles(file_contents, criteria || "general");
+  } catch (err) {
+    console.log(`[DEBUG] Analysis failed:`, err);
+    // Return a default analysis if the analysis function fails
+    analysis = {
+      overall_score: 50,
+      strengths: ["Files were successfully read"],
+      improvements: ["Analysis encountered an error"],
+      specific_suggestions: [{
+        file: "analysis",
+        suggestion: "Review file contents for potential issues",
+        priority: "medium" as const,
+      }],
+    };
+  }
 
   return {
     evaluation: analysis,

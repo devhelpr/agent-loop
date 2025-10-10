@@ -166,10 +166,34 @@ export async function handleEvaluateWork(
     criteria: decision.tool_input.criteria,
   });
 
-  const out = await evaluate_work(
-    decision.tool_input.files ?? [],
-    decision.tool_input.criteria
-  );
+  let out;
+  try {
+    out = await evaluate_work(
+      decision.tool_input.files ?? [],
+      decision.tool_input.criteria
+    );
+  } catch (error) {
+    log(logConfig, "tool-error", "evaluate_work failed", {
+      error: String(error),
+      files: decision.tool_input.files,
+    });
+    
+    // Return a default evaluation result when evaluation fails
+    out = {
+      evaluation: {
+        overall_score: 0,
+        strengths: [],
+        improvements: ["Evaluation failed due to file access errors"],
+        specific_suggestions: [{
+          file: "evaluation",
+          suggestion: "Fix file access issues and try evaluation again",
+          priority: "high" as const,
+        }],
+      },
+      files_analyzed: [],
+      criteria_used: decision.tool_input.criteria || "general",
+    };
+  }
 
   log(logConfig, "tool-result", "evaluate_work completed", {
     filesAnalyzed: out.files_analyzed.length,

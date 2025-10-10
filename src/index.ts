@@ -131,9 +131,25 @@ When ready to speak to the user, choose final_answer.
     const rawContent = decisionResp.choices[0].message.content || "{}";
     let d: Decision;
 
+    // Check if response is too large (might indicate an issue)
+    if (rawContent.length > 50000) {
+      log(
+        logConfig,
+        "decision",
+        "Response is very large, might indicate parsing issues",
+        {
+          contentLength: rawContent.length,
+          preview: rawContent.substring(0, 200) + "...",
+        }
+      );
+    }
+
     try {
       const parsed = JSON.parse(rawContent);
-      log(logConfig, "decision", "Raw response parsed", { parsed });
+      log(logConfig, "decision", "Raw response parsed", {
+        parsed: parsed,
+        contentLength: rawContent.length,
+      });
 
       // Handle case where the decision is nested under properties
       if (parsed.properties?.action) {
@@ -274,9 +290,9 @@ When ready to speak to the user, choose final_answer.
 }
 
 //   "Create two files: 1) util/titleCase.ts with a titleCase function, and 2) my-file.ts that imports and exports the titleCase function. Both files should be created from scratch."
-//   "Create a my-website.html which is beautifull and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
+// "Create a my-website.html which is beautiful/modern/fancy/responsive and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
 runCodingAgent(
-  "Create a my-website.html which is beautiful/modern/fancy/responsive and use vanilla CSS: let it tell a story about AI and the future. Add a style.css file and make it look great."
+  "Create a my-game.html which is an arcarde-style asteroids game and is retro.beautiful/modern/fancy/responsive and use vanilla CSS AND JS. Add game.css and game.js files and make it look great.  "
 )
   .then((r) => {
     console.log("\n=== FINAL RESULT ===", r);
