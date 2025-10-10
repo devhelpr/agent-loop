@@ -4,7 +4,7 @@
 
 This project is a simple coding agent implemented with an Agent Loop architecture.
 
-It runs openai LLM calls in a loop and depending on the response, it can read files, search the repo, write patches, and run commands. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
+It runs OpenAI LLM calls in a loop and depending on the response, it can read files, search the repo, write patches, and run commands. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
 
 This uses manual tool calls instead of using the OpenAI function calling feature, allowing for more control over the process.
 
