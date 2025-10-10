@@ -106,48 +106,10 @@ When ready to speak to the user, choose final_answer.
     } catch (error) {
       logError(logConfig, "OpenAI API call failed after all retries", error);
 
-      // Try one more time with a simpler prompt if transcript is long
-      if (transcript.length > 10) {
-        try {
-          log(
-            logConfig,
-            "step",
-            "Attempting recovery with simplified context..."
-          );
-          const simplifiedTranscript = [
-            transcript[0], // system
-            transcript[1], // user goal
-            {
-              role: "assistant" as const,
-              content:
-                "Previous context available but simplified for recovery.",
-            },
-            {
-              role: "user" as const,
-              content:
-                "Please continue with the task. If stuck, use final_answer to summarize progress.",
-            },
-          ];
-
-          decisionResp = await makeOpenAICall(
-            simplifiedTranscript,
-            DecisionSchema,
-            logConfig,
-            { maxRetries: 1, timeoutMs: 60000, truncateTranscript: false }
-          );
-        } catch (recoveryError) {
-          logError(logConfig, "Recovery attempt also failed", recoveryError);
-          return {
-            steps: step,
-            message: `OpenAI API call failed at step ${step} even after recovery attempt: ${error}`,
-          };
-        }
-      } else {
-        return {
-          steps: step,
-          message: `OpenAI API call failed at step ${step}: ${error}`,
-        };
-      }
+      return {
+        steps: step,
+        message: `OpenAI API call failed at step ${step}: ${error}`,
+      };
     }
 
     const rawContent = decisionResp.choices[0].message.content || "{}";
