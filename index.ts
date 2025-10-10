@@ -1,10 +1,15 @@
 // pnpm add openai execa fast-glob diff
+//
+// Environment Variables for Logging:
+// - AGENT_CONSOLE_LOGGING=false  : Disable console logging (default: true)
+// - AGENT_FILE_LOGGING=true      : Enable file logging (default: false)
+// - AGENT_LOG_FILE=path/to/log   : Log file path (default: agent-log.txt)
+//
 import OpenAI from "openai";
 import { execa } from "execa";
 import fg from "fast-glob";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-console.log("Using OpenAI API key:", process.env.OPENAI_API_KEY);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -17,10 +22,20 @@ interface LogConfig {
   logToolResults?: boolean;
   logDecisions?: boolean;
   logTranscript?: boolean;
+  fileLogging?: {
+    enabled: boolean;
+    filePath: string;
+  };
 }
 
 function log(config: LogConfig, category: string, message: string, data?: any) {
-  if (!config.enabled) return;
+  // Check environment variables for logging control
+  const consoleLoggingEnabled =
+    process.env.AGENT_CONSOLE_LOGGING !== "false" && config.enabled;
+  const fileLoggingEnabled =
+    process.env.AGENT_FILE_LOGGING === "true" && config.fileLogging?.enabled;
+
+  if (!consoleLoggingEnabled && !fileLoggingEnabled) return;
 
   const shouldLog =
     (category === "step" && config.logSteps) ||
@@ -30,9 +45,27 @@ function log(config: LogConfig, category: string, message: string, data?: any) {
     (category === "transcript" && config.logTranscript);
 
   if (shouldLog) {
-    console.log(`[${category.toUpperCase()}] ${message}`);
-    if (data !== undefined) {
-      console.log(JSON.stringify(data, null, 2));
+    const timestamp = new Date().toISOString();
+    const logLine = `[${timestamp}] [${category.toUpperCase()}] ${message}`;
+    const dataLine = data !== undefined ? JSON.stringify(data, null, 2) : null;
+
+    // Console logging (if enabled)
+    if (consoleLoggingEnabled) {
+      console.log(`[${category.toUpperCase()}] ${message}`);
+      if (dataLine) {
+        console.log(dataLine);
+      }
+    }
+
+    // File logging (if enabled)
+    if (fileLoggingEnabled && config.fileLogging?.filePath) {
+      const logContent = logLine + (dataLine ? "\n" + dataLine : "") + "\n";
+      // Use fs.appendFile to avoid blocking the main thread
+      fs.appendFile(config.fileLogging.filePath, logContent, "utf8").catch(
+        (err) => {
+          console.error("Failed to write to log file:", err);
+        }
+      );
     }
   }
 }
@@ -414,6 +447,10 @@ export async function runCodingAgent(
     logToolResults: true,
     logDecisions: true,
     logTranscript: false,
+    fileLogging: {
+      enabled: true,
+      filePath: process.env.AGENT_LOG_FILE || "agent-log.txt",
+    },
     ...opts?.logging,
   };
   let writes = 0,
@@ -593,6 +630,10 @@ runCodingAgent(
       logToolResults: true,
       logDecisions: true,
       logTranscript: false, // Set to true if you want to see full transcript
+      fileLogging: {
+        enabled: true,
+        filePath: "agent-execution.log",
+      },
     },
   }
 )
