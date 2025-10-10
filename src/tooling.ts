@@ -4,6 +4,48 @@ import { execa } from "execa";
 import fg from "fast-glob";
 import { parsePatch, applyPatch } from "diff";
 
+// Manual patch application for when the diff library fails
+async function applyPatchManually(
+  originalContent: string,
+  parsedPatch: any
+): Promise<string | null> {
+  try {
+    const lines = originalContent.split("\n");
+    let result = [...lines];
+
+    // Process each hunk in the patch
+    for (const hunk of parsedPatch.hunks || []) {
+      const oldStart = hunk.oldStart - 1; // Convert to 0-based index
+      const oldLines = hunk.oldLines;
+      const newStart = hunk.newStart - 1; // Convert to 0-based index
+      const newLines = hunk.newLines;
+
+      console.log(
+        `[DEBUG] Manual patch: oldStart=${oldStart}, oldLines=${oldLines}, newStart=${newStart}, newLines=${newLines}`
+      );
+
+      // Remove old lines
+      if (oldLines > 0) {
+        result.splice(oldStart, oldLines);
+      }
+
+      // Add new lines
+      const newContent = hunk.lines
+        .filter((line: string) => line.startsWith("+"))
+        .map((line: string) => line.substring(1));
+
+      if (newContent.length > 0) {
+        result.splice(oldStart, 0, ...newContent);
+      }
+    }
+
+    return result.join("\n");
+  } catch (err) {
+    console.log("[DEBUG] Manual patch application failed:", err);
+    return null;
+  }
+}
+
 export async function read_files(paths: string[]) {
   const results: Record<string, string> = {};
   for (const p of paths) {
@@ -39,22 +81,35 @@ export async function search_repo(
 export async function write_patch(patch: string) {
   const replaced: string[] = [];
 
-  console.log("[DEBUG] write_patch - patch preview:", patch.substring(0, 100));
+  // Unescape newlines and other escape sequences
+  const unescapedPatch = patch
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+
+  console.log(
+    "[DEBUG] write_patch - patch preview:",
+    unescapedPatch.substring(0, 100)
+  );
 
   // Try to parse as unified diff format first
   try {
-    const parsedPatches = parsePatch(patch);
-    console.log("[DEBUG] Parsed as unified diff, patches found:", parsedPatches.length);
-    
+    const parsedPatches = parsePatch(unescapedPatch);
+    console.log(
+      "[DEBUG] Parsed as unified diff, patches found:",
+      parsedPatches.length
+    );
+
     if (parsedPatches.length > 0) {
       // Apply each parsed patch
       for (const parsedPatch of parsedPatches) {
         // Extract filename from the patch (prefer newFileName, fall back to oldFileName)
         let file = parsedPatch.newFileName || parsedPatch.oldFileName || "";
-        
+
         // Remove common prefixes like "a/" or "b/"
         file = file.replace(/^[ab]\//, "");
-        
+
         if (!file) {
           console.log("[DEBUG] Skipping patch with no filename");
           continue;
@@ -68,14 +123,40 @@ export async function write_patch(patch: string) {
           originalContent = await fs.readFile(file, "utf8");
         } catch (err) {
           // File doesn't exist, try to create it if the patch is adding content
-          console.log(`[DEBUG] File "${file}" doesn't exist, treating as empty`);
+          console.log(
+            `[DEBUG] File "${file}" doesn't exist, treating as empty`
+          );
         }
 
         // Apply the patch
         const result = applyPatch(originalContent, parsedPatch);
-        
+
         if (result === false) {
-          console.log(`[DEBUG] Failed to apply patch to "${file}"`);
+          console.log(
+            `[DEBUG] Failed to apply patch to "${file}", trying manual diff application`
+          );
+          // Try to apply the patch manually by parsing the hunks
+          const manualResult = await applyPatchManually(
+            originalContent,
+            parsedPatch
+          );
+          if (manualResult !== null) {
+            // Create directory if it doesn't exist
+            const dir = path.dirname(file);
+            if (dir !== "." && dir !== "") {
+              console.log(`[DEBUG] Creating directory: "${dir}"`);
+              await fs.mkdir(dir, { recursive: true });
+            }
+
+            // Write the patched content
+            console.log(`[DEBUG] Writing manually patched file: "${file}"`);
+            await fs.writeFile(file, manualResult, "utf8");
+            replaced.push(file);
+          } else {
+            console.log(
+              `[DEBUG] Manual patch application also failed for "${file}"`
+            );
+          }
           continue;
         }
 
@@ -91,18 +172,21 @@ export async function write_patch(patch: string) {
         await fs.writeFile(file, result, "utf8");
         replaced.push(file);
       }
-      
+
       if (replaced.length > 0) {
         return { applied: replaced, mode: "diff" };
       }
     }
   } catch (err) {
-    console.log("[DEBUG] Not a unified diff patch, trying full-file format:", err);
+    console.log(
+      "[DEBUG] Not a unified diff patch, trying full-file format:",
+      err
+    );
   }
 
   // Fall back to full-file format
   // Split on === file: at the beginning of lines or at the start
-  const blocks = patch.split(/(?:^|\n)=== file:/);
+  const blocks = unescapedPatch.split(/(?:^|\n)=== file:/);
 
   console.log("[DEBUG] write_patch - full-file blocks found:", blocks.length);
 
