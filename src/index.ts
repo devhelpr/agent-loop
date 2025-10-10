@@ -1,12 +1,4 @@
-// pnpm add openai execa fast-glob diff
-//
-// Environment Variables for Logging:
-// - AGENT_CONSOLE_LOGGING=false  : Disable console logging (default: true)
-// - AGENT_FILE_LOGGING=true      : Enable file logging (default: false)
-// - AGENT_LOG_FILE=path/to/log   : Log file path (default: agent-log.txt)
-//
-import OpenAI from "openai";
-import { LogConfig, log } from "./logging.js";
+import { LogConfig, log, logError } from "./logging.js";
 import { DecisionSchema, Decision } from "./schema.js";
 import {
   handleReadFiles,
@@ -14,6 +6,9 @@ import {
   handleWritePatch,
   handleRunCmd,
 } from "./handlers.js";
+import { makeOpenAICall } from "./makeOpenAICall.js";
+import { openai } from "./openai.js";
+import { prompt } from "./prompt.js";
 
 console.log(
   "🚀 Starting agent - API key:",
@@ -27,8 +22,6 @@ console.log(
   "📁 Environment - File logging:",
   process.env.AGENT_FILE_LOGGING || "default"
 );
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /** ---------- Agent loop ---------- */
 
@@ -54,6 +47,7 @@ export async function runCodingAgent(
     logToolResults: true,
     logDecisions: true,
     logTranscript: false,
+    logErrors: true, // Enable error logging by default
     fileLogging: {
       enabled: true,
       filePath: process.env.AGENT_LOG_FILE || "agent-log.txt",
@@ -69,20 +63,7 @@ export async function runCodingAgent(
   });
 
   const system = `
-You are a coding agent that iteratively edits a repository to satisfy the user's goal.
-Rules:
-- Prefer small, safe, incremental patches.
-- Run linters/compilers/tests to validate progress (e.g., "npm test", "tsc -p .", "eslint .").
-- Always keep edits minimal and reversible. Only modify necessary files.
-- When tests pass (exit code 0), produce final_answer.
-- Stop early if the requested change is fulfilled and validated.
-- Never output source code directly in decisions; use write_patch with file blocks:
-  === file:relative/path.ext ===
-  <entire new file content>
-  === end ===
-- If you need context, call read_files or search_repo first.
-- You MUST NOT loop forever; if blocked, propose a minimal failing test to clarify, then final_answer.
-
+${prompt}
 Safety caps:
 - At most ${caps.maxWrites} write_patch calls and ${caps.maxCmds} run_cmd calls.
 
@@ -107,40 +88,66 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    log(logConfig, "step", "Making OpenAI API call...");
-
     let decisionResp: Awaited<
       ReturnType<typeof openai.chat.completions.create>
     >;
+
     try {
-      // Add a timeout to the API call
-      const apiCallPromise = openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: transcript,
-        response_format: {
-          type: "json_schema",
-          json_schema: DecisionSchema,
-        },
-      });
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("OpenAI API call timeout after 30 seconds")),
-          30000
-        )
+      decisionResp = await makeOpenAICall(
+        transcript,
+        DecisionSchema,
+        logConfig,
+        {
+          maxRetries: 3,
+          timeoutMs: 120000, // 2 minutes
+          truncateTranscript: true,
+        }
       );
-
-      decisionResp = await Promise.race([apiCallPromise, timeoutPromise]);
-      log(logConfig, "step", "OpenAI API call completed");
     } catch (error) {
-      log(logConfig, "step", "OpenAI API call failed", {
-        error: String(error),
-      });
-      // Return early with an error message
-      return {
-        steps: step,
-        message: `OpenAI API call failed at step ${step}: ${error}`,
-      };
+      logError(logConfig, "OpenAI API call failed after all retries", error);
+
+      // Try one more time with a simpler prompt if transcript is long
+      if (transcript.length > 10) {
+        try {
+          log(
+            logConfig,
+            "step",
+            "Attempting recovery with simplified context..."
+          );
+          const simplifiedTranscript = [
+            transcript[0], // system
+            transcript[1], // user goal
+            {
+              role: "assistant" as const,
+              content:
+                "Previous context available but simplified for recovery.",
+            },
+            {
+              role: "user" as const,
+              content:
+                "Please continue with the task. If stuck, use final_answer to summarize progress.",
+            },
+          ];
+
+          decisionResp = await makeOpenAICall(
+            simplifiedTranscript,
+            DecisionSchema,
+            logConfig,
+            { maxRetries: 1, timeoutMs: 60000, truncateTranscript: false }
+          );
+        } catch (recoveryError) {
+          logError(logConfig, "Recovery attempt also failed", recoveryError);
+          return {
+            steps: step,
+            message: `OpenAI API call failed at step ${step} even after recovery attempt: ${error}`,
+          };
+        }
+      } else {
+        return {
+          steps: step,
+          message: `OpenAI API call failed at step ${step}: ${error}`,
+        };
+      }
     }
 
     const rawContent = decisionResp.choices[0].message.content || "{}";
@@ -176,10 +183,7 @@ When ready to speak to the user, choose final_answer.
         } as Decision;
       }
     } catch (error) {
-      log(logConfig, "decision", "Failed to parse decision", {
-        rawContent,
-        error,
-      });
+      logError(logConfig, "Failed to parse decision", error, { rawContent });
       // Default to final_answer if parsing fails
       d = {
         action: "final_answer",
@@ -192,20 +196,45 @@ When ready to speak to the user, choose final_answer.
     if (d.action === "final_answer") {
       log(logConfig, "step", "Agent chose final_answer - generating summary");
       // Produce a succinct status + next steps for the user
-      const final = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          ...transcript,
+      let final;
+      try {
+        const summaryMessages = [
+          ...transcript.slice(-10), // Only use last 10 messages for summary
           {
-            role: "system",
+            role: "system" as const,
             content:
-              "Now summarize the changes made, current test status, and any follow-ups succinctly.",
+              "Now summarize the changes made, current test status, and any follow-ups succinctly. Keep it under 200 words.",
           },
-        ],
-      });
+        ];
+
+        final = await makeOpenAICall(
+          summaryMessages,
+          {
+            name: "Summary",
+            strict: false,
+            schema: {
+              type: "object",
+              properties: { summary: { type: "string" } },
+            },
+          },
+          logConfig,
+          { maxRetries: 2, timeoutMs: 60000, truncateTranscript: false }
+        );
+      } catch (summaryError) {
+        logError(
+          logConfig,
+          "Failed to generate summary, using default",
+          summaryError
+        );
+        return {
+          steps: step,
+          message: `Task completed in ${step} steps. Summary generation failed, but agent finished execution.`,
+        };
+      }
       const result = {
         steps: step,
-        message: final.choices[0].message.content || "No response",
+        message:
+          final.choices[0].message.content || "Task completed successfully",
       };
       log(logConfig, "step", "Agent completed successfully", result);
       return result;
@@ -250,26 +279,8 @@ When ready to speak to the user, choose final_answer.
   return result;
 }
 
-/** ---------- Example usage ----------
- * Goal: "Add a new utility `titleCase(s: string)` with tests, pass `npm test`,
- * and fix any TypeScript/ESLint errors encountered."
- */
 runCodingAgent(
-  "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal.",
-  {
-    logging: {
-      enabled: true,
-      logSteps: true,
-      logToolCalls: true,
-      logToolResults: true,
-      logDecisions: true,
-      logTranscript: false, // Set to true if you want to see full transcript
-      fileLogging: {
-        enabled: true,
-        filePath: "agent-execution.log",
-      },
-    },
-  }
+  "Create util/titleCase.ts and unit tests. Wire it in my-file.ts exports. Ensure `npm test` passes and `tsc -p .` has no errors. Keep changes minimal."
 )
   .then((r) => console.log("\n=== FINAL RESULT ===", r))
   .catch(console.error);

@@ -6,8 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node --env-file=.env dist/src/index.js",
-    "dev": "node --experimental-transform-types --env-file=.env src/index.ts"
+    "start": "npm run build && node --env-file=.env dist/src/index.js",
+    "start:prod": "node --env-file=.env dist/src/index.js"
   },
   "dependencies": {
     "diff": "^8.0.2",

@@ -40,3 +40,4 @@ logs/
 tmp/
 temp/
 *.tmp
+agent-log.txt
