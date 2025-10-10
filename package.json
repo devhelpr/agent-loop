@@ -7,13 +7,14 @@
     "start": "node --experimental-transform-types index.ts"
   },
   "dependencies": {
-    "openai": "^6.3.0",
+    "diff": "^8.0.2",
     "execa": "^9.6.0",
     "fast-glob": "^3.3.3",
-    "diff": "^8.0.2"
+    "openai": "^6.3.0"
   },
   "devDependencies": {
-    "@types/node": "^24.7.1"
+    "@types/node": "^24.7.1",
+    "typescript": "^5.9.3"
   },
   "keywords": [],
   "author": "",
