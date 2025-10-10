@@ -1,7 +1,7 @@
 // pnpm add openai execa fast-glob diff
 import OpenAI from "openai";
 import { execa } from "execa";
-import * as fg from "fast-glob";
+import fg from "fast-glob";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 console.log("Using OpenAI API key:", process.env.OPENAI_API_KEY);
@@ -57,7 +57,7 @@ async function search_repo(
   include = ["**/*.{ts,tsx,js,json,md}"],
   exclude = ["**/node_modules/**", "**/dist/**"]
 ) {
-  const files = await fg.glob(include, { ignore: exclude });
+  const files = await fg(include, { ignore: exclude });
   const hits: Array<{ file: string; line: number; snippet: string }> = [];
   for (const f of files) {
     const text = await fs.readFile(f, "utf8");
@@ -77,24 +77,33 @@ async function write_patch(patch: string) {
   // For brevity, support a safer "full file propose" format too:
   // === file:path ===\n<new file content>\n=== end ===
   const replaced: string[] = [];
-  
-  // Split on === file: at the beginning of lines
-  const blocks = patch.split(/\n=== file:/);
-  
+
+  // Split on === file: at the beginning of lines or at the start
+  const blocks = patch.split(/(?:^|\n)=== file:/);
+
+  console.log("[DEBUG] write_patch - blocks found:", blocks.length);
+  console.log("[DEBUG] write_patch - patch preview:", patch.substring(0, 100));
+
   if (blocks.length > 1) {
     // Skip the first empty block
     for (let i = 1; i < blocks.length; i++) {
       const block = blocks[i];
+      console.log(
+        `[DEBUG] Processing block ${i}:`,
+        block.substring(0, 50) + "..."
+      );
+
       const lines = block.split("\n");
       const filePathLine = lines[0];
-      
+
       // Extract filename, handling cases like "path/file.ts ==="
       const file = filePathLine.replace(/\s*===\s*$/, "").trim();
-      
+      console.log(`[DEBUG] Extracted filename: "${file}"`);
+
       // Find the content between the header and === end ===
       const contentLines: string[] = [];
       let foundEnd = false;
-      
+
       for (let j = 1; j < lines.length; j++) {
         const line = lines[j];
         if (line.trim() === "=== end ===") {
@@ -103,27 +112,33 @@ async function write_patch(patch: string) {
         }
         contentLines.push(line);
       }
-      
+
       if (!foundEnd) {
         // If no end marker found, take everything after the first line
         contentLines.push(...lines.slice(1));
       }
-      
+
       const body = contentLines.join("\n");
-      
+      console.log(
+        `[DEBUG] File content (${body.length} chars):`,
+        body.substring(0, 100) + "..."
+      );
+
       // Create directory if it doesn't exist
       const dir = path.dirname(file);
       if (dir !== "." && dir !== "") {
+        console.log(`[DEBUG] Creating directory: "${dir}"`);
         await fs.mkdir(dir, { recursive: true });
       }
-      
+
       // Write the file
+      console.log(`[DEBUG] Writing file: "${file}"`);
       await fs.writeFile(file, body, "utf8");
       replaced.push(file);
     }
     return { applied: replaced, mode: "full-file" };
   }
-  
+
   // (You can extend this with proper unified diff parsing if you like.)
   return { applied: [], mode: "none", error: "No recognized patch blocks" };
 }
@@ -313,7 +328,8 @@ async function handleWritePatch(
   const patchContent = String(decision.tool_input.patch || "");
   log(logConfig, "tool-call", "Executing write_patch", {
     patchLength: patchContent.length,
-    patchPreview: patchContent.substring(0, 200) + (patchContent.length > 200 ? "..." : "")
+    patchPreview:
+      patchContent.substring(0, 200) + (patchContent.length > 200 ? "..." : ""),
   });
   const out = await write_patch(patchContent);
   log(logConfig, "tool-result", "write_patch completed", out);
