@@ -6,14 +6,14 @@
 // - AGENT_LOG_FILE=path/to/log   : Log file path (default: agent-log.txt)
 //
 import OpenAI from "openai";
-import { LogConfig, log } from "./logging";
-import { DecisionSchema, Decision } from "./schema";
+import { LogConfig, log } from "./logging.js";
+import { DecisionSchema, Decision } from "./schema.js";
 import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
   handleRunCmd,
-} from "./handlers";
+} from "./handlers.js";
 
 console.log(
   "🚀 Starting agent - API key:",

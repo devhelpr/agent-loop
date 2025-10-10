@@ -2,9 +2,12 @@
   "name": "agent-loop",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "type": "module",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node --experimental-transform-types --env-file=.env src/index.ts"
+    "build": "tsc",
+    "start": "node --env-file=.env dist/src/index.js",
+    "dev": "node --experimental-transform-types --env-file=.env src/index.ts"
   },
   "dependencies": {
     "diff": "^8.0.2",
