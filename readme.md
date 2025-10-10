@@ -4,9 +4,24 @@
 
 This project is a simple coding agent implemented with an Agent Loop architecture.
 
-It runs OpenAI LLM calls in a loop and depending on the response, it can read files, search the repo, write patches, and run commands. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
+It runs OpenAI LLM calls in a loop and depending on the response, it can read files, search the repo, write patches, run commands, and evaluate work quality. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
 
-This uses manual tool calls instead of using the OpenAI function calling feature, allowing for more control over the process.
+## Key Features
+
+- **Manual Tool Calls**: Uses manual tool calls instead of OpenAI function calling for more control
+- **Dual Patch Formats**: Supports both full-file patches (for new files) and unified diff patches (for incremental improvements)
+- **Work Evaluation**: Built-in evaluation tool that analyzes created files and provides structured feedback with scores, strengths, improvements, and specific suggestions
+- **Robust Diff Parsing**: Enhanced diff patch parsing with fallback mechanisms for edge cases
+- **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with diff patches → re-evaluate
+
+## Tools Available
+
+1. **read_files**: Read and analyze existing files
+2. **search_repo**: Search the repository for patterns or content
+3. **write_patch**: Apply patches in unified diff format (preferred) or full-file format
+4. **run_cmd**: Execute shell commands
+5. **evaluate_work**: Analyze files and provide structured feedback for improvements
+6. **final_answer**: Complete the task and generate a summary
 
 ## Architecture Diagram
 
@@ -24,35 +39,43 @@ flowchart TD
     G -->|search_repo| I[Search Repository Tool]
     G -->|write_patch| J[Write Patch Tool]
     G -->|run_cmd| K[Run Command Tool]
-    G -->|final_answer| L[Generate Summary]
-    G -->|unknown| M[Log Error & Continue]
+    G -->|evaluate_work| L[Evaluate Work Tool]
+    G -->|final_answer| M[Generate Summary]
+    G -->|unknown| N[Log Error & Continue]
 
-    H --> N[Update Transcript]
-    I --> N
-    J --> O{Check Write Limit}
-    K --> P{Check Command Limit}
-    M --> N
+    H --> O[Update Transcript]
+    I --> O
+    J --> P{Check Write Limit}
+    K --> Q{Check Command Limit}
+    L --> R[Analyze Files & Generate Feedback]
+    N --> O
 
-    O -->|Within Limit| N
-    O -->|Exceeded| Q[Stop: Write Limit Reached]
-    P -->|Within Limit| N
-    P -->|Exceeded| R[Stop: Command Limit Reached]
+    P -->|Within Limit| O
+    P -->|Exceeded| S[Stop: Write Limit Reached]
+    Q -->|Within Limit| O
+    Q -->|Exceeded| T[Stop: Command Limit Reached]
 
-    N --> S{Step < maxSteps?}
-    S -->|Yes| C
-    S -->|No| T[Stop: Max Steps Reached]
+    R --> U[Add Evaluation Results to Transcript]
+    U --> O
 
-    L --> U[Return Final Result]
-    Q --> U
-    R --> U
-    T --> U
-    U --> V[Process Exit]
+    O --> V{Step < maxSteps?}
+    V -->|Yes| C
+    V -->|No| W[Stop: Max Steps Reached]
+
+    M --> X[Return Final Result]
+    S --> X
+    T --> X
+    W --> X
+    X --> Y[Process Exit]
 
     style A fill:#e1f5fe
-    style U fill:#c8e6c9
-    style V fill:#ffcdd2
+    style X fill:#c8e6c9
+    style Y fill:#ffcdd2
     style D fill:#fff3e0
     style G fill:#f3e5f5
+    style L fill:#e8f5e8
+    style R fill:#e8f5e8
+    style U fill:#e8f5e8
 ```
 
 ## Environment Variables:
