@@ -74,20 +74,56 @@ async function search_repo(
 // Minimal unified diff applier (file-by-file full replacement fallback if needed)
 async function write_patch(patch: string) {
   // Accepts diffs in the form of multiple files with "+++ b/..." and "--- a/..."
-  // For brevity, support a safer “full file propose” format too:
+  // For brevity, support a safer "full file propose" format too:
   // === file:path ===\n<new file content>\n=== end ===
   const replaced: string[] = [];
-  const blocks = patch.split("\n=== file:").slice(1);
-  if (blocks.length) {
-    for (const blk of blocks) {
-      const [header, ...rest] = blk.split("\n");
-      const file = header.trim();
-      const body = rest.join("\n").replace(/\n=== end ===\s*$/m, "");
+  
+  // Split on === file: at the beginning of lines
+  const blocks = patch.split(/\n=== file:/);
+  
+  if (blocks.length > 1) {
+    // Skip the first empty block
+    for (let i = 1; i < blocks.length; i++) {
+      const block = blocks[i];
+      const lines = block.split("\n");
+      const filePathLine = lines[0];
+      
+      // Extract filename, handling cases like "path/file.ts ==="
+      const file = filePathLine.replace(/\s*===\s*$/, "").trim();
+      
+      // Find the content between the header and === end ===
+      const contentLines: string[] = [];
+      let foundEnd = false;
+      
+      for (let j = 1; j < lines.length; j++) {
+        const line = lines[j];
+        if (line.trim() === "=== end ===") {
+          foundEnd = true;
+          break;
+        }
+        contentLines.push(line);
+      }
+      
+      if (!foundEnd) {
+        // If no end marker found, take everything after the first line
+        contentLines.push(...lines.slice(1));
+      }
+      
+      const body = contentLines.join("\n");
+      
+      // Create directory if it doesn't exist
+      const dir = path.dirname(file);
+      if (dir !== "." && dir !== "") {
+        await fs.mkdir(dir, { recursive: true });
+      }
+      
+      // Write the file
       await fs.writeFile(file, body, "utf8");
       replaced.push(file);
     }
     return { applied: replaced, mode: "full-file" };
   }
+  
   // (You can extend this with proper unified diff parsing if you like.)
   return { applied: [], mode: "none", error: "No recognized patch blocks" };
 }
@@ -274,10 +310,12 @@ async function handleWritePatch(
     return writes;
   }
 
+  const patchContent = String(decision.tool_input.patch || "");
   log(logConfig, "tool-call", "Executing write_patch", {
-    patchLength: String(decision.tool_input.patch || "").length,
+    patchLength: patchContent.length,
+    patchPreview: patchContent.substring(0, 200) + (patchContent.length > 200 ? "..." : "")
   });
-  const out = await write_patch(String(decision.tool_input.patch || ""));
+  const out = await write_patch(patchContent);
   log(logConfig, "tool-result", "write_patch completed", out);
   const newWrites = writes + 1;
   transcript.push({
