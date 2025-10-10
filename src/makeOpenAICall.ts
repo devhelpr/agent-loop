@@ -91,6 +91,7 @@ export async function makeOpenAICall(
           type: "json_schema",
           json_schema: schema,
         },
+        reasoning_effort: "minimal",
       });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
