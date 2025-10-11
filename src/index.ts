@@ -1,20 +1,20 @@
-import { LogConfig, log, logError } from "./logging.js";
-import { DecisionSchema, Decision } from "./schema.js";
+import { LogConfig, log, logError } from "./logging";
+import { DecisionSchema, Decision } from "./schema";
 import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
   handleRunCmd,
   handleEvaluateWork,
-} from "./handlers.js";
+} from "./handlers";
 import {
   makeOpenAICall,
   getTokenStats,
   resetTokenStats,
   displayTokenSummary,
-} from "./makeOpenAICall.js";
-import { openai } from "./openai.js";
-import { prompt } from "./prompt.js";
+} from "./makeOpenAICall";
+import { openai } from "./openai";
+import { prompt } from "./prompt";
 
 console.log(
   "🚀 Starting agent - API key:",

@@ -1,12 +1,12 @@
-import { Decision } from "./schema.js";
-import { LogConfig, log } from "./logging.js";
+import { Decision } from "./schema";
+import { LogConfig, log } from "./logging";
 import {
   read_files,
   search_repo,
   write_patch,
   run_cmd,
   evaluate_work,
-} from "./tooling.js";
+} from "./tooling";
 
 export type MessageArray = Array<{
   role: "system" | "user" | "assistant";

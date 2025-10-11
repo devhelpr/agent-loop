@@ -1,5 +1,5 @@
-import { LogConfig, log } from "./logging.js";
-import { openai } from "./openai.js";
+import { LogConfig, log } from "./logging";
+import { openai } from "./openai";
 
 // Global token tracking
 let totalInputTokens = 0;
