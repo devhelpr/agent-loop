@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { write_patch } from "./tooling.js";
+import { write_patch } from "../../tools/file-operations";
 
 describe("Diff and Patch Functionality", () => {
   const testDir = path.join(process.cwd(), "test-files");

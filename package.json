@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "start": "npm run build && node --env-file=.env dist/src/index.js",
     "start:prod": "node --env-file=.env dist/src/index.js",
     "test": "vitest",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@types/node": "^24.7.1",
     "@vitest/ui": "^3.2.4",
+    "tsc-alias": "^1.8.16",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
