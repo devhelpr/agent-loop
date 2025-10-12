@@ -116,7 +116,7 @@ When ready to speak to the user, choose final_answer.
     }
 
     const rawContent = decisionResp.choices[0].message.content || "{}";
-    let d: Decision;
+    let decision: Decision;
 
     // Check if response is too large (might indicate an issue)
     if (rawContent.length > 50000) {
@@ -145,20 +145,20 @@ When ready to speak to the user, choose final_answer.
           "decision",
           "Decision found in properties, extracting..."
         );
-        d = {
+        decision = {
           action: parsed.properties.action,
           tool_input: parsed.properties.tool_input || {},
           rationale: parsed.properties.rationale,
         } as Decision;
       } else if (parsed.action) {
-        d = parsed as Decision;
+        decision = parsed as Decision;
       } else {
         log(
           logConfig,
           "decision",
           "No action found in response, defaulting to final_answer"
         );
-        d = {
+        decision = {
           action: "final_answer",
           rationale: "No valid action in response",
         } as Decision;
@@ -166,15 +166,17 @@ When ready to speak to the user, choose final_answer.
     } catch (error) {
       logError(logConfig, "Failed to parse decision", error, { rawContent });
       // Default to final_answer if parsing fails
-      d = {
+      decision = {
         action: "final_answer",
         rationale: "Parsing error occurred",
       } as Decision;
     }
 
-    log(logConfig, "decision", `Agent decided: ${d.action}`, { decision: d });
+    log(logConfig, "decision", `Agent decided: ${decision.action}`, {
+      decision: decision,
+    });
 
-    if (d.action === "final_answer") {
+    if (decision.action === "final_answer") {
       log(logConfig, "step", "Agent chose final_answer - generating summary");
       // Produce a succinct status + next steps for the user
       let final;
@@ -233,38 +235,51 @@ When ready to speak to the user, choose final_answer.
     }
 
     // Execute appropriate tool handler
-    if (d.action === "read_files") {
-      await handleReadFiles(d, transcript, logConfig);
+    if (decision.action === "read_files") {
+      await handleReadFiles(decision, transcript, logConfig);
       continue;
     }
 
-    if (d.action === "search_repo") {
-      await handleSearchRepo(d, transcript, logConfig);
+    if (decision.action === "search_repo") {
+      await handleSearchRepo(decision, transcript, logConfig);
       continue;
     }
 
-    if (d.action === "write_patch") {
-      writes = await handleWritePatch(d, transcript, writes, caps, logConfig);
+    if (decision.action === "write_patch") {
+      writes = await handleWritePatch(
+        decision,
+        transcript,
+        writes,
+        caps,
+        logConfig
+      );
       continue;
     }
 
-    if (d.action === "run_cmd") {
-      cmds = await handleRunCmd(d, transcript, cmds, caps, testCmd, logConfig);
+    if (decision.action === "run_cmd") {
+      cmds = await handleRunCmd(
+        decision,
+        transcript,
+        cmds,
+        caps,
+        testCmd,
+        logConfig
+      );
       continue;
     }
 
-    if (d.action === "evaluate_work") {
-      await handleEvaluateWork(d, transcript, logConfig);
+    if (decision.action === "evaluate_work") {
+      await handleEvaluateWork(decision, transcript, logConfig);
       continue;
     }
 
     // Unknown action
     log(logConfig, "step", "Unknown action encountered", {
-      action: (d as any).action,
+      action: (decision as any).action,
     });
     transcript.push({
       role: "assistant",
-      content: `ERROR: Unknown action ${JSON.stringify(d)}`,
+      content: `ERROR: Unknown action ${JSON.stringify(decision)}`,
     });
   }
 
