@@ -3,112 +3,6 @@ import * as path from "node:path";
 import fg from "fast-glob";
 import { parsePatch, applyPatch } from "diff";
 
-// Manual patch application for when the diff library fails
-async function applyPatchManually(
-  originalContent: string,
-  parsedPatch: any
-): Promise<string | null> {
-  try {
-    const lines = originalContent.split("\n");
-    let result = [...lines];
-
-    // Process each hunk in the patch
-    for (const hunk of parsedPatch.hunks || []) {
-      const oldStart = hunk.oldStart - 1; // Convert to 0-based index
-      const oldLines = hunk.oldLines;
-      const newStart = hunk.newStart - 1; // Convert to 0-based index
-      const newLines = hunk.newLines;
-
-      console.log(
-        `[DEBUG] Manual patch: oldStart=${oldStart}, oldLines=${oldLines}, newStart=${newStart}, newLines=${newLines}`
-      );
-
-      // Validate bounds
-      if (oldStart < 0 || oldStart >= result.length) {
-        console.log(
-          `[DEBUG] Invalid oldStart position: ${oldStart}, file length: ${result.length}`
-        );
-        continue;
-      }
-
-      // Remove old lines
-      if (oldLines > 0) {
-        const endIndex = Math.min(oldStart + oldLines, result.length);
-        result.splice(oldStart, endIndex - oldStart);
-      }
-
-      // Add new lines
-      const newContent = hunk.lines
-        .filter((line: string) => line.startsWith("+"))
-        .map((line: string) => line.substring(1));
-
-      if (newContent.length > 0) {
-        result.splice(oldStart, 0, ...newContent);
-      }
-    }
-
-    return result.join("\n");
-  } catch (err) {
-    console.log("[DEBUG] Manual patch application failed:", err);
-    return null;
-  }
-}
-
-// Enhanced diff parsing that can handle more edge cases
-function parseDiffPatch(patchContent: string): any[] {
-  try {
-    // Try the standard diff library first
-    return parsePatch(patchContent);
-  } catch (err) {
-    console.log("[DEBUG] Standard diff parsing failed, trying manual parsing");
-
-    // Manual parsing for edge cases
-    const patches = [];
-    const lines = patchContent.split("\n");
-    let currentPatch: any = null;
-    let currentHunk: any = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Start of a new patch
-      if (line.startsWith("--- a/")) {
-        if (currentPatch) patches.push(currentPatch);
-        currentPatch = {
-          oldFileName: line.substring(6),
-          newFileName: "",
-          hunks: [],
-        };
-      } else if (line.startsWith("+++ b/")) {
-        if (currentPatch) {
-          currentPatch.newFileName = line.substring(6);
-        }
-      } else if (line.startsWith("@@")) {
-        // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
-        const match = line.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
-        if (match && currentPatch) {
-          currentHunk = {
-            oldStart: parseInt(match[1]),
-            oldLines: parseInt(match[2]) || 0,
-            newStart: parseInt(match[3]),
-            newLines: parseInt(match[4]) || 0,
-            lines: [],
-          };
-          currentPatch.hunks.push(currentHunk);
-        }
-      } else if (
-        currentHunk &&
-        (line.startsWith("+") || line.startsWith("-") || line.startsWith(" "))
-      ) {
-        currentHunk.lines.push(line);
-      }
-    }
-
-    if (currentPatch) patches.push(currentPatch);
-    return patches;
-  }
-}
-
 export async function read_files(paths: string[]) {
   const results: Record<string, string> = {};
   for (const p of paths) {
@@ -158,7 +52,7 @@ export async function write_patch(patch: string) {
 
   // Try to parse as unified diff format first
   try {
-    const parsedPatches = parseDiffPatch(unescapedPatch);
+    const parsedPatches = parsePatch(unescapedPatch);
     console.log(
       "[DEBUG] Parsed as unified diff, patches found:",
       parsedPatches.length
@@ -185,41 +79,19 @@ export async function write_patch(patch: string) {
         try {
           originalContent = await fs.readFile(file, "utf8");
         } catch (err) {
-          // File doesn't exist, try to create it if the patch is adding content
+          // File doesn't exist, treat as empty
           console.log(
             `[DEBUG] File "${file}" doesn't exist, treating as empty`
           );
         }
 
-        // Apply the patch
+        // Apply the patch using the diff library
         const result = applyPatch(originalContent, parsedPatch);
 
         if (result === false) {
           console.log(
-            `[DEBUG] Failed to apply patch to "${file}", trying manual diff application`
+            `[DEBUG] Failed to apply patch to "${file}" - patch may be invalid or incompatible`
           );
-          // Try to apply the patch manually by parsing the hunks
-          const manualResult = await applyPatchManually(
-            originalContent,
-            parsedPatch
-          );
-          if (manualResult !== null) {
-            // Create directory if it doesn't exist
-            const dir = path.dirname(file);
-            if (dir !== "." && dir !== "") {
-              console.log(`[DEBUG] Creating directory: "${dir}"`);
-              await fs.mkdir(dir, { recursive: true });
-            }
-
-            // Write the patched content
-            console.log(`[DEBUG] Writing manually patched file: "${file}"`);
-            await fs.writeFile(file, manualResult, "utf8");
-            replaced.push(file);
-          } else {
-            console.log(
-              `[DEBUG] Manual patch application also failed for "${file}"`
-            );
-          }
           continue;
         }
 
