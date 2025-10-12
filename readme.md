@@ -27,55 +27,63 @@ It runs OpenAI LLM calls in a loop and depending on the response, it can read fi
 
 ```mermaid
 flowchart TD
-    A[Start Agent] --> B[Initialize Config & Transcript]
-    B --> C[Step Counter: 1 to maxSteps]
-    C --> D[Make OpenAI API Call]
-    D --> E{Parse Decision}
-
-    E -->|Parse Error| F[Default to final_answer]
-    E -->|Success| G{Decision Type?}
-
-    G -->|read_files| H[Read Files Tool]
-    G -->|search_repo| I[Search Repository Tool]
-    G -->|write_patch| J[Write Patch Tool]
-    G -->|run_cmd| K[Run Command Tool]
-    G -->|evaluate_work| L[Evaluate Work Tool]
-    G -->|final_answer| M[Generate Summary]
-    G -->|unknown| N[Log Error & Continue]
-
-    H --> O[Update Transcript]
-    I --> O
-    J --> P{Check Write Limit}
-    K --> Q{Check Command Limit}
-    L --> R[Analyze Files & Generate Feedback]
-    N --> O
-
-    P -->|Within Limit| O
-    P -->|Exceeded| S[Stop: Write Limit Reached]
-    Q -->|Within Limit| O
-    Q -->|Exceeded| T[Stop: Command Limit Reached]
-
-    R --> U[Add Evaluation Results to Transcript]
-    U --> O
-
-    O --> V{Step < maxSteps?}
-    V -->|Yes| C
-    V -->|No| W[Stop: Max Steps Reached]
-
-    M --> X[Return Final Result]
-    S --> X
-    T --> X
-    W --> X
-    X --> Y[Process Exit]
-
+    A[Start Agent] --> B[Initialize Config & Reset Token Stats]
+    B --> C[Setup Safety Caps & Transcript]
+    C --> D[Step Counter: 1 to maxSteps]
+    D --> E[Make OpenAI API Call with Retries]
+    
+    E --> F{API Call Success?}
+    F -->|Failed| G[Log Error & Return with Token Stats]
+    F -->|Success| H[Parse JSON Response]
+    
+    H --> I{Parse Success?}
+    I -->|Parse Error| J[Default to final_answer]
+    I -->|Success| K{Decision Type?}
+    
+    K -->|read_files| L[Read Files Handler]
+    K -->|search_repo| M[Search Repository Handler]
+    K -->|write_patch| N[Write Patch Handler]
+    K -->|run_cmd| O[Run Command Handler]
+    K -->|evaluate_work| P[Evaluate Work Handler]
+    K -->|final_answer| Q[Generate Summary with OpenAI]
+    K -->|unknown| R[Log Error & Add to Transcript]
+    
+    L --> S[Update Transcript with Results]
+    M --> S
+    N --> T{Check Write Limit}
+    O --> U{Check Command Limit}
+    P --> V[Analyze Files & Generate Structured Feedback]
+    R --> S
+    
+    T -->|Within Limit| S
+    T -->|Exceeded| W[Stop: Write Limit Reached]
+    U -->|Within Limit| S
+    U -->|Exceeded| X[Stop: Command Limit Reached]
+    
+    V --> Y[Add Evaluation Results to Transcript]
+    Y --> S
+    
+    S --> Z{Step < maxSteps?}
+    Z -->|Yes| D
+    Z -->|No| AA[Stop: Max Steps Reached]
+    
+    Q --> BB[Display Token Summary & Return Result]
+    W --> BB
+    X --> BB
+    AA --> BB
+    G --> BB
+    BB --> CC[Process Exit]
+    
     style A fill:#e1f5fe
-    style X fill:#c8e6c9
-    style Y fill:#ffcdd2
-    style D fill:#fff3e0
-    style G fill:#f3e5f5
-    style L fill:#e8f5e8
-    style R fill:#e8f5e8
-    style U fill:#e8f5e8
+    style BB fill:#c8e6c9
+    style CC fill:#ffcdd2
+    style E fill:#fff3e0
+    style K fill:#f3e5f5
+    style P fill:#e8f5e8
+    style V fill:#e8f5e8
+    style Y fill:#e8f5e8
+    style T fill:#fff9c4
+    style U fill:#fff9c4
 ```
 
 ## Environment Variables:
