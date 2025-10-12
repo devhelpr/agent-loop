@@ -1,0 +1,87 @@
+:root{
+  --bg:#08121a;
+  --glass: rgba(255,255,255,0.04);
+  --accent:#70f0d8;
+  --accent-2:#78a7ff;
+  --muted: #9fb4c6;
+  --card: rgba(255,255,255,0.03);
+  --mono: 'Segoe UI Mono', 'Roboto Mono', Menlo, monospace;
+}
+
+*{box-sizing:border-box}
+html,body,#stage{height:100%;}
+body{
+  margin:0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: radial-gradient(1200px 800px at 10% 10%, rgba(120,167,255,0.06), transparent),
+              radial-gradient(900px 600px at 90% 90%, rgba(112,240,216,0.03), transparent),
+              var(--bg);
+  color:var(--muted);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:1.2rem;
+}
+
+.stage{
+  width:100%;
+  max-width:1200px;
+  height:calc(100% - 48px);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.008));
+  border-radius:14px;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+.ui{display:flex;align-items:center;padding:12px 20px}
+.top-ui{justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.03);}
+.bottom-ui{justify-content:center;border-top:1px solid rgba(255,255,255,0.03);font-size:12px}
+.logo{
+  margin:0;font-weight:700;letter-spacing:6px;color:var(--accent-2);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.02), 0 8px 32px rgba(120,167,255,0.04);
+}
+.status{display:flex;gap:18px}
+.status > div{font-family:var(--mono);font-weight:600;color:var(--muted);font-size:13px}
+.status span{color:var(--accent);display:inline-block;min-width:60px;text-align:right}
+
+.game-wrap{
+  position:relative;flex:1;display:flex;padding:22px;gap:20px;align-items:stretch;
+}
+
+canvas#game{
+  flex:1;background:linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.25));
+  border-radius:10px;border:1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 18px 60px rgba(2,6,23,0.6) inset, 0 6px 20px rgba(0,0,0,0.6);
+  width:100%;height:100%;display:block;
+}
+
+.help{
+  width:220px;min-width:180px;background:linear-gradient(180deg,var(--card),transparent);
+  border-radius:10px;padding:14px;color:var(--muted);font-size:13px;align-self:flex-start;
+  backdrop-filter: blur(6px);
+}
+.help h2{margin:0 0 8px 0;color:var(--accent-2);letter-spacing:2px;font-size:13px}
+.help ul{padding-left:18px;margin:0 0 10px 0}
+.hint{font-size:12px;color:rgba(255,255,255,0.6)}
+
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto}
+.overlay .panel{min-width:320px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:22px 26px;text-align:center;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+.overlay h2{margin:0 0 8px;color:var(--accent);font-family:var(--mono)}
+.overlay p{margin:0 0 16px;color:var(--muted)}
+.btn{background:linear-gradient(180deg,var(--accent),var(--accent-2));color:#012024;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:700}
+.btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);margin-left:8px}
+kbd{background:rgba(255,255,255,0.03);padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.02);font-family:var(--mono);}
+
+/* responsive */
+@media (max-width:880px){
+  .game-wrap{flex-direction:column;padding:12px}
+  .help{width:100%;min-width:0;order:2}
+  canvas#game{height:420px;border-radius:8px}
+  .overlay .panel{width:100%;margin:0 14px}
+}
+
+/* retro HUD */
+.hud-scanline{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,0.01) 1px, transparent 1px);background-size:100% 3px;mix-blend-mode:overlay}
+

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="game.css" />
+  </head>
+  <body>
+    <main class="stage" id="stage">
+      <header class="ui top-ui">
+        <h1 class="logo">ASTEROIDS</h1>
+        <div class="status">
+          <div class="score">SCORE <span id="score">0</span></div>
+          <div class="lives">LIVES <span id="lives">3</span></div>
+        </div>
+      </header>
+
+      <section class="game-wrap">
+        <canvas
+          id="game"
+          width="1280"
+          height="720"
+          aria-label="Asteroids game canvas"
+        ></canvas>
+
+        <aside class="help">
+          <h2>Controls</h2>
+          <ul>
+            <li>← / A: Rotate left</li>
+            <li>→ / D: Rotate right</li>
+            <li>↑ / W: Thrust</li>
+            <li>Space: Shoot</li>
+            <li>P: Pause</li>
+          </ul>
+          <p class="hint">
+            Tip: Survive as long as you can. Small asteroids are worth more!
+          </p>
+        </aside>
+
+        <div class="overlay" id="overlay">
+          <div class="panel">
+            <h2 id="overlay-title">Welcome to ASTEROIDS</h2>
+            <p id="overlay-msg">Press <kbd>Space</kbd> to start</p>
+            <div class="buttons">
+              <button id="start-btn" class="btn">Start</button>
+              <button id="mute-btn" class="btn ghost">Mute</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="ui bottom-ui">
+        <div class="credits">Made with ♥ — Retro style — Vanilla JS</div>
+      </footer>
+    </main>
+
+    <script src="game.js" defer></script>
+  </body>
+</html>
