@@ -11,7 +11,7 @@ It runs OpenAI LLM calls in a loop and depending on the response, it can read fi
 - **Manual Tool Calls**: Uses manual tool calls instead of OpenAI function calling for more control
 - **Dual Patch Formats**: Supports both full-file patches (for new files) and unified diff patches (for incremental improvements)
 - **Work Evaluation**: Built-in evaluation tool that analyzes created files and provides structured feedback with scores, strengths, improvements, and specific suggestions
-- **Robust Diff Parsing**: Enhanced diff patch parsing with fallback mechanisms for edge cases
+- **Diff Parsing**: Unified diff patch parsing
 - **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with diff patches → re-evaluate
 
 ## Tools Available
