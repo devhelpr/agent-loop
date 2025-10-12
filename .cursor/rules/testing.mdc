@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+
+- When running tests, use npm test:run
+- use vitest to run tests
+- use describe, it, expect, beforeEach, afterEach
+- use mocks to mock external api calls
