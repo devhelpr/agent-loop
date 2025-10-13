@@ -38,6 +38,11 @@ program
     "Test command to run (default: npm test --silent)"
   )
   .option("--test-args <args>", "Test command arguments (comma-separated)")
+  .option(
+    "--timeout <seconds>",
+    "Maximum time to wait for agent completion (default: 300 seconds, 0 = no timeout)",
+    "300"
+  )
   .parse();
 
 async function main() {
@@ -85,6 +90,7 @@ async function main() {
   const maxSteps = parseInt(options.maxSteps, 10);
   const maxWrites = parseInt(options.maxWrites, 10);
   const maxCommands = parseInt(options.maxCommands, 10);
+  const timeoutSeconds = parseInt(options.timeout, 10);
 
   // Parse test command
   let testCommand = { cmd: "npm", args: ["test", "--silent"] };
@@ -115,6 +121,11 @@ async function main() {
     `🧪 Test command: ${testCommand.cmd} ${testCommand.args.join(" ")}`
   );
   console.log(
+    `⏱️  Timeout: ${
+      timeoutSeconds === 0 ? "disabled" : `${timeoutSeconds} seconds`
+    }`
+  );
+  console.log(
     `📊 Console logging: ${logging.enabled ? "enabled" : "disabled"}`
   );
   console.log(
@@ -125,6 +136,17 @@ async function main() {
     }`
   );
   console.log("");
+
+  // Set up configurable timeout if specified
+  let timeoutId: NodeJS.Timeout | null = null;
+  if (timeoutSeconds > 0) {
+    timeoutId = setTimeout(() => {
+      console.log(
+        `⚠️  Process timeout after ${timeoutSeconds} seconds - forcing exit`
+      );
+      process.exit(0);
+    }, timeoutSeconds * 1000);
+  }
 
   try {
     const result = await runCodingAgent(userPrompt, {
@@ -137,12 +159,21 @@ async function main() {
       logging,
     });
 
+    // Clear timeout since we completed successfully
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
     console.log("\n✅ Agent completed successfully!");
     console.log("📊 Final result:", result);
 
     // Force exit immediately to ensure the process terminates
     process.exit(0);
   } catch (error) {
+    // Clear timeout on error
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
     console.error("\n❌ Agent execution failed:", error);
     process.exit(1);
   }
@@ -164,9 +195,3 @@ main().catch((error) => {
   console.error("❌ CLI execution failed:", error);
   process.exit(1);
 });
-
-// Fallback: Force exit after 30 seconds to prevent hanging
-setTimeout(() => {
-  console.log("⚠️  Process timeout - forcing exit");
-  process.exit(0);
-}, 30000);
