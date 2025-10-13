@@ -23,7 +23,28 @@ It runs OpenAI LLM calls in a loop and depending on the response, it can read fi
 5. **evaluate_work**: Analyze files and provide structured feedback for improvements
 6. **final_answer**: Complete the task and generate a summary
 
-## Architecture Diagram
+## High-Level Agent Loop
+
+```mermaid
+flowchart LR
+    A[User Goal] --> B[Agent Loop]
+    B --> C[LLM Decision]
+    C --> D[Execute Tool]
+    D --> E[Update Context]
+    E --> F{Task Complete?}
+    F -->|No| C
+    F -->|Yes| G[Final Answer]
+    
+    style A fill:#e1f5fe
+    style B fill:#fff3e0
+    style C fill:#f3e5f5
+    style D fill:#e8f5e8
+    style E fill:#fff9c4
+    style F fill:#ffecb3
+    style G fill:#c8e6c9
+```
+
+## Detailed Architecture Diagram
 
 ```mermaid
 flowchart TD
