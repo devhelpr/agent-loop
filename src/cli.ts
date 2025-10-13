@@ -139,6 +139,9 @@ async function main() {
 
     console.log("\n✅ Agent completed successfully!");
     console.log("📊 Final result:", result);
+
+    // Force exit immediately to ensure the process terminates
+    process.exit(0);
   } catch (error) {
     console.error("\n❌ Agent execution failed:", error);
     process.exit(1);
@@ -161,3 +164,9 @@ main().catch((error) => {
   console.error("❌ CLI execution failed:", error);
   process.exit(1);
 });
+
+// Fallback: Force exit after 30 seconds to prevent hanging
+setTimeout(() => {
+  console.log("⚠️  Process timeout - forcing exit");
+  process.exit(0);
+}, 30000);

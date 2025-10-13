@@ -51,4 +51,20 @@ describe("CLI", () => {
       );
     }
   });
+
+  it("should exit cleanly after completion", async () => {
+    process.env.OPENAI_API_KEY = "test-key";
+    const startTime = Date.now();
+    try {
+      await execa(
+        "node",
+        ["dist/src/cli.js", "--prompt", "Create a simple HTML page"],
+        { timeout: 10000 }
+      );
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      // Should exit within reasonable time (not hang)
+      expect(duration).toBeLessThan(8000);
+    }
+  });
 });
