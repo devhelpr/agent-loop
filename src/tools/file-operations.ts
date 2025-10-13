@@ -18,7 +18,7 @@ export async function read_files(paths: string[]) {
 
 export async function search_repo(
   query: string,
-  include = ["**/*.{ts,tsx,js,json,md}"],
+  include = ["**/*.{ts,tsx,js,json,md,css,js,jsx,html}"],
   exclude = ["**/node_modules/**", "**/dist/**"]
 ) {
   const files = await fg(include, { ignore: exclude });
