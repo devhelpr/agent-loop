@@ -4,6 +4,8 @@ import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
+  handleGeneratePatch,
+  handleASTRefactor,
   handleRunCmd,
   handleEvaluateWork,
 } from "../handlers";
@@ -14,6 +16,35 @@ import {
   displayTokenSummary,
 } from "../ai/api-calls";
 import { prompt } from "../ai/prompts";
+
+// Validation function to ensure decision structure is correct
+function validateDecision(parsed: any): Decision | null {
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  // Check if it's a valid action
+  const validActions = [
+    "read_files",
+    "search_repo",
+    "write_patch",
+    "generate_patch",
+    "run_cmd",
+    "evaluate_work",
+    "final_answer",
+  ];
+
+  if (!parsed.action || !validActions.includes(parsed.action)) {
+    return null;
+  }
+
+  // Basic structure validation
+  if (parsed.action !== "final_answer" && !parsed.tool_input) {
+    return null;
+  }
+
+  return parsed as Decision;
+}
 
 export type MessageArray = Array<{
   role: "system" | "user" | "assistant";
@@ -133,9 +164,10 @@ When ready to speak to the user, choose final_answer.
 
     try {
       const parsed = JSON.parse(rawContent);
-      log(logConfig, "decision", "Raw response parsed", {
-        parsed: parsed,
-        contentLength: rawContent.length,
+      log(logConfig, "decision", "LLM response parsed successfully", {
+        rawContentLength: rawContent.length,
+        hasAction: !!parsed.action,
+        hasProperties: !!parsed.properties,
       });
 
       // Handle case where the decision is nested under properties
@@ -145,30 +177,54 @@ When ready to speak to the user, choose final_answer.
           "decision",
           "Decision found in properties, extracting..."
         );
-        decision = {
+        const extractedDecision = {
           action: parsed.properties.action,
           tool_input: parsed.properties.tool_input || {},
           rationale: parsed.properties.rationale,
-        } as Decision;
-      } else if (parsed.action) {
-        decision = parsed as Decision;
+        };
+
+        const validatedDecision = validateDecision(extractedDecision);
+        if (validatedDecision) {
+          decision = validatedDecision;
+        } else {
+          log(
+            logConfig,
+            "decision",
+            "Extracted decision failed validation, defaulting to final_answer",
+            { extractedDecision }
+          );
+          decision = {
+            action: "final_answer",
+            rationale: "Invalid decision structure in properties",
+          } as Decision;
+        }
       } else {
-        log(
-          logConfig,
-          "decision",
-          "No action found in response, defaulting to final_answer"
-        );
-        decision = {
-          action: "final_answer",
-          rationale: "No valid action in response",
-        } as Decision;
+        const validatedDecision = validateDecision(parsed);
+        if (validatedDecision) {
+          decision = validatedDecision;
+        } else {
+          log(
+            logConfig,
+            "decision",
+            "Parsed decision failed validation, defaulting to final_answer",
+            { parsedKeys: Object.keys(parsed), parsed }
+          );
+          decision = {
+            action: "final_answer",
+            rationale: "Invalid decision structure",
+          } as Decision;
+        }
       }
     } catch (error) {
-      logError(logConfig, "Failed to parse decision", error, { rawContent });
+      logError(logConfig, "Failed to parse LLM response as JSON", error, {
+        rawContent:
+          rawContent.substring(0, 500) + (rawContent.length > 500 ? "..." : ""),
+        contentLength: rawContent.length,
+      });
       // Default to final_answer if parsing fails
       decision = {
         action: "final_answer",
-        rationale: "Parsing error occurred",
+        rationale: "JSON parsing error occurred",
       } as Decision;
     }
 
@@ -247,6 +303,28 @@ When ready to speak to the user, choose final_answer.
 
     if (decision.action === "write_patch") {
       writes = await handleWritePatch(
+        decision,
+        transcript,
+        writes,
+        caps,
+        logConfig
+      );
+      continue;
+    }
+
+    if (decision.action === "generate_patch") {
+      writes = await handleGeneratePatch(
+        decision,
+        transcript,
+        writes,
+        caps,
+        logConfig
+      );
+      continue;
+    }
+
+    if (decision.action === "ast_refactor") {
+      writes = await handleASTRefactor(
         decision,
         transcript,
         writes,
