@@ -107,6 +107,74 @@ flowchart TD
     style U fill:#fff9c4
 ```
 
+## CLI Usage
+
+### Installation
+
+Install globally to use from anywhere on your system:
+
+```bash
+npm install -g .
+```
+
+Or use directly without installation:
+
+```bash
+npx agent-loop
+```
+
+### Basic Usage
+
+Run the CLI in interactive mode:
+
+```bash
+agent-loop
+```
+
+Or provide a prompt directly:
+
+```bash
+agent-loop --prompt "Create a simple HTML page with CSS styling"
+```
+
+### CLI Options
+
+```bash
+agent-loop [options]
+
+Options:
+  -p, --prompt <prompt>           Direct prompt to execute (skips interactive mode)
+  -m, --max-steps <number>        Maximum number of steps to execute (default: 20)
+  -w, --max-writes <number>       Maximum number of file writes (default: 10)
+  -c, --max-commands <number>     Maximum number of commands to run (default: 20)
+  --no-console-log                Disable console logging
+  --file-log                      Enable file logging
+  --log-file <path>               Log file path (default: agent-log.txt)
+  --test-command <command>        Test command to run (default: npm test --silent)
+  --test-args <args>              Test command arguments (comma-separated)
+  -h, --help                      Display help for command
+  -V, --version                   Display version number
+```
+
+### Examples
+
+```bash
+# Interactive mode
+agent-loop
+
+# Direct prompt
+agent-loop --prompt "Create a React component for a todo list"
+
+# With custom limits
+agent-loop --prompt "Build a calculator app" --max-steps 30 --max-writes 15
+
+# With custom test command
+agent-loop --prompt "Create a Node.js API" --test-command "npm" --test-args "test,run"
+
+# With file logging
+agent-loop --prompt "Create a website" --file-log --log-file my-agent.log
+```
+
 ## Environment Variables:
 
 - OPENAI_API_KEY : Your OpenAI API key (required)
