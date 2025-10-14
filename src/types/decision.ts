@@ -11,6 +11,8 @@ export const DecisionSchema = {
           "read_files",
           "search_repo",
           "write_patch",
+          "generate_patch",
+          "ast_refactor",
           "run_cmd",
           "evaluate_work",
           "final_answer",
@@ -20,6 +22,7 @@ export const DecisionSchema = {
       tool_input: {
         type: "object",
         description: "Input parameters for the selected tool",
+        additionalProperties: false,
         properties: {
           paths: {
             type: "array",
@@ -57,6 +60,33 @@ export const DecisionSchema = {
             description:
               "Specific criteria to evaluate against (e.g., 'styling', 'functionality', 'performance')",
           },
+          instructions: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                file: { type: "string", description: "File path to modify" },
+                operation: {
+                  type: "string",
+                  enum: ["add", "replace", "delete", "insert"],
+                  description: "Type of operation to perform",
+                },
+              },
+              required: ["file", "operation"],
+            },
+            description:
+              "Structured patch instructions for generate_patch action",
+          },
+          intent: {
+            type: "string",
+            description:
+              "Natural language description of the refactoring intent for ast_refactor action",
+          },
+          tsConfigPath: {
+            type: "string",
+            description: "Path to tsconfig.json for ast_refactor action",
+          },
         },
       },
       rationale: {
@@ -77,6 +107,20 @@ export type Decision =
   | { action: "search_repo"; tool_input: { query: string }; rationale?: string }
   | { action: "write_patch"; tool_input: { patch: string }; rationale?: string }
   | {
+      action: "generate_patch";
+      tool_input: {
+        instructions: Array<{
+          file: string;
+          operation: "add" | "replace" | "delete" | "insert";
+          line?: number;
+          content?: string;
+          oldContent?: string;
+          context?: string;
+        }>;
+      };
+      rationale?: string;
+    }
+  | {
       action: "run_cmd";
       tool_input: { cmd: string; args?: string[]; timeoutMs?: number };
       rationale?: string;
@@ -84,6 +128,11 @@ export type Decision =
   | {
       action: "evaluate_work";
       tool_input: { files: string[]; criteria?: string };
+      rationale?: string;
+    }
+  | {
+      action: "ast_refactor";
+      tool_input: { intent: string; tsConfigPath?: string };
       rationale?: string;
     }
   | { action: "final_answer"; rationale?: string };
