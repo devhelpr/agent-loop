@@ -1,5 +1,5 @@
 import { LogConfig, log } from "../utils/logging";
-import { generateObject } from "ai";
+import { generateObject, generateText, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { AIClient, AIProvider } from "./ai-client";
 
@@ -194,16 +194,81 @@ export async function makeAICall(
       };
     } catch (error) {
       const errorMsg = String(error);
-      log(
-        logConfig,
-        "step",
-        `${aiClient
-          .getProvider()
-          .toUpperCase()} API call attempt ${attempt} failed`,
-        {
-          error: errorMsg,
+
+      // Enhanced error logging for schema validation failures
+      if (NoObjectGeneratedError.isInstance(error)) {
+        log(
+          logConfig,
+          "step",
+          `${aiClient
+            .getProvider()
+            .toUpperCase()} API call attempt ${attempt} failed - Schema validation error, trying fallback`,
+          {
+            error: errorMsg,
+            cause: error.cause,
+            generatedText: error.text
+              ? error.text.substring(0, 500) +
+                (error.text.length > 500 ? "..." : "")
+              : "No text generated",
+            response: error.response,
+            usage: error.usage,
+          }
+        );
+
+        // Try fallback with generateText if we have generated text
+        if (error.text && attempt === maxRetries) {
+          try {
+            log(
+              logConfig,
+              "step",
+              "Attempting fallback parsing of generated text"
+            );
+
+            // Try to repair and parse the generated text
+            const repairedText = repairMalformedJSON(error.text);
+            const parsedText = JSON.parse(repairedText);
+
+            // Validate against the schema manually
+            const validatedObject = schema.parse(parsedText);
+
+            log(logConfig, "step", "Fallback parsing successful");
+
+            // Return in the same format as generateObject
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify(validatedObject),
+                    role: "assistant" as const,
+                  },
+                },
+              ],
+              usage: error.usage
+                ? {
+                    prompt_tokens: error.usage.inputTokens,
+                    completion_tokens: error.usage.outputTokens,
+                    total_tokens: error.usage.totalTokens,
+                  }
+                : undefined,
+            };
+          } catch (fallbackError) {
+            log(logConfig, "step", "Fallback parsing also failed", {
+              fallbackError: String(fallbackError),
+            });
+          }
         }
-      );
+      } else {
+        log(
+          logConfig,
+          "step",
+          `${aiClient
+            .getProvider()
+            .toUpperCase()} API call attempt ${attempt} failed`,
+          {
+            error: errorMsg,
+          }
+        );
+      }
 
       if (attempt === maxRetries) {
         throw error; // Re-throw on final attempt
@@ -217,6 +282,105 @@ export async function makeAICall(
   }
 
   throw new Error("All retry attempts failed");
+}
+
+// Helper function to repair malformed JSON responses
+function repairMalformedJSON(text: string): string {
+  try {
+    // First, try to parse as-is
+    const parsed = JSON.parse(text);
+
+    // Check if tool_input is a string that contains XML-like content
+    if (parsed.tool_input && typeof parsed.tool_input === "string") {
+      const toolInputStr = parsed.tool_input;
+
+      // Handle XML-like parameter syntax (both complete and incomplete tags)
+      // Example: "\n<parameter name=\"files\">[\"App.tsx\"]</parameter>"
+      // Example: "\n<parameter name=\"paths\">[\"App.tsx\", \"src/App.tsx\"]" (incomplete)
+      const xmlParamMatch = toolInputStr.match(
+        /\n<parameter\s+name="([^"]+)">([^<]+)(?:<\/parameter>)?/
+      );
+      if (xmlParamMatch) {
+        const [, paramName, paramValue] = xmlParamMatch;
+        try {
+          const parsedValue = JSON.parse(paramValue);
+          parsed.tool_input = { [paramName]: parsedValue };
+        } catch {
+          parsed.tool_input = { [paramName]: paramValue };
+        }
+        return JSON.stringify(parsed);
+      }
+
+      // Handle other XML-like patterns
+      const xmlTagMatches = toolInputStr.match(/<([^>]+)>([^<]+)<\/[^>]+>/g);
+      if (xmlTagMatches) {
+        const toolInputObj: Record<string, any> = {};
+        xmlTagMatches.forEach((match: string) => {
+          const tagMatch = match.match(/<([^>]+)>([^<]+)<\/[^>]+>/);
+          if (tagMatch) {
+            const [, tagName, value] = tagMatch;
+            try {
+              toolInputObj[tagName] = JSON.parse(value);
+            } catch {
+              toolInputObj[tagName] = value;
+            }
+          }
+        });
+        parsed.tool_input = toolInputObj;
+        return JSON.stringify(parsed);
+      }
+    }
+
+    return text;
+  } catch (error) {
+    // If parsing fails, try to repair common issues
+
+    // Handle XML-like parameter syntax in tool_input
+    // Example: "tool_input": "\n<parameter name=\"files\">[\"App.tsx\"]"
+    let repaired = text;
+
+    // Fix XML-like parameter syntax (both complete and incomplete tags)
+    const xmlParamRegex =
+      /"tool_input":\s*"\\n<parameter\s+name=\\"([^"]+)\\">([^<]+)(?:<\/parameter>)?"/g;
+    repaired = repaired.replace(
+      xmlParamRegex,
+      (match, paramName, paramValue) => {
+        try {
+          // Try to parse the parameter value as JSON
+          const parsedValue = JSON.parse(paramValue);
+          return `"tool_input": ${JSON.stringify({
+            [paramName]: parsedValue,
+          })}`;
+        } catch {
+          // If parsing fails, treat as string
+          return `"tool_input": ${JSON.stringify({ [paramName]: paramValue })}`;
+        }
+      }
+    );
+
+    // Fix other common XML-like patterns
+    const xmlValueRegex = /"tool_input":\s*"\\n<([^>]+)>([^<]+)<\/[^>]+>"/g;
+    repaired = repaired.replace(xmlValueRegex, (match, tagName, value) => {
+      try {
+        const parsedValue = JSON.parse(value);
+        return `"tool_input": ${JSON.stringify(parsedValue)}`;
+      } catch {
+        return `"tool_input": ${JSON.stringify({ [tagName]: value })}`;
+      }
+    });
+
+    // Fix escaped quotes in strings
+    repaired = repaired.replace(/\\"/g, '"');
+
+    // Fix common JSON syntax issues
+    repaired = repaired.replace(/,(\s*[}\]])/g, "$1"); // Remove trailing commas
+    repaired = repaired.replace(
+      /([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g,
+      '$1"$2":'
+    ); // Quote unquoted keys
+
+    return repaired;
+  }
 }
 
 // Backward compatibility function
@@ -299,7 +463,11 @@ function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
           zodProp = z.any();
       }
 
-      if (jsonSchema.required && jsonSchema.required.includes(key)) {
+      // Make tool_input optional to be more permissive with schema validation
+      // The actual validation is handled by validateDecision function in agent.ts
+      if (key === "tool_input") {
+        shape[key] = zodProp.optional();
+      } else if (jsonSchema.required && jsonSchema.required.includes(key)) {
         shape[key] = zodProp;
       } else {
         shape[key] = zodProp.optional();
