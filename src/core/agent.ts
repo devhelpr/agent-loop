@@ -16,6 +16,7 @@ import {
   displayTokenSummary,
 } from "../ai/api-calls";
 import { prompt } from "../ai/prompts";
+import { AIProvider } from "../ai/ai-client";
 
 // Validation function to ensure decision structure is correct
 function validateDecision(parsed: any): Decision | null {
@@ -58,6 +59,8 @@ export async function runCodingAgent(
     testCommand?: { cmd: string; args?: string[] };
     hardCaps?: { maxWrites?: number; maxCmds?: number };
     logging?: LogConfig;
+    aiProvider?: AIProvider;
+    aiModel?: string;
   }
 ) {
   // Reset token statistics for this run
@@ -113,11 +116,7 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    let decisionResp: Awaited<
-      ReturnType<
-        typeof import("../ai/openai-client").openai.chat.completions.create
-      >
-    >;
+    let decisionResp: Awaited<ReturnType<typeof makeOpenAICall>>;
 
     try {
       decisionResp = await makeOpenAICall(
@@ -128,10 +127,12 @@ When ready to speak to the user, choose final_answer.
           maxRetries: 3,
           timeoutMs: 120000, // 2 minutes
           truncateTranscript: true,
+          provider: opts?.aiProvider,
+          model: opts?.aiModel,
         }
       );
     } catch (error) {
-      logError(logConfig, "OpenAI API call failed after all retries", error);
+      logError(logConfig, "AI API call failed after all retries", error);
 
       // Get token statistics even on error
       const tokenStats = getTokenStats();
@@ -141,7 +142,7 @@ When ready to speak to the user, choose final_answer.
 
       return {
         steps: step,
-        message: `OpenAI API call failed at step ${step}: ${error}`,
+        message: `AI API call failed at step ${step}: ${error}`,
         tokenUsage: tokenStats,
       };
     }

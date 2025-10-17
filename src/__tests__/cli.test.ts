@@ -32,7 +32,7 @@ describe("CLI", () => {
       await execa("node", ["dist/src/cli.js", "--prompt", "test"]);
     } catch (error: any) {
       expect(error.exitCode).toBe(1);
-      expect(error.stdout).toContain("Please set your OpenAI API key:");
+      expect(error.stdout).toContain("Please set your openai API key:");
     }
   });
 
