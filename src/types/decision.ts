@@ -72,8 +72,44 @@ export const DecisionSchema = {
                   enum: ["add", "replace", "delete", "insert"],
                   description: "Type of operation to perform",
                 },
+                line: {
+                  type: "number",
+                  description:
+                    "Line number for insert/replace/delete operations",
+                },
+                content: {
+                  type: "string",
+                  description: "Content to add/replace",
+                },
+                oldContent: {
+                  type: "string",
+                  description: "Content to replace (for replace operations)",
+                },
+                context: {
+                  type: "string",
+                  description:
+                    "Context lines around the change for better matching",
+                },
               },
               required: ["file", "operation"],
+              anyOf: [
+                {
+                  properties: { operation: { const: "add" } },
+                  required: ["content"],
+                },
+                {
+                  properties: { operation: { const: "replace" } },
+                  required: ["content"],
+                },
+                {
+                  properties: { operation: { const: "insert" } },
+                  required: ["content"],
+                },
+                {
+                  properties: { operation: { const: "delete" } },
+                  required: ["oldContent"],
+                },
+              ],
             },
             description:
               "Structured patch instructions for generate_patch action",
