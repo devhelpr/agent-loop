@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import inquirer from "inquirer";
 import { runCodingAgent } from "./core/agent.js";
+import { AIProvider } from "./ai/ai-client.js";
 
 const program = new Command();
 
@@ -43,16 +44,36 @@ program
     "Maximum time to wait for agent completion (default: 300 seconds, 0 = no timeout)",
     "300"
   )
+  .option(
+    "--provider <provider>",
+    "AI provider to use (openai, anthropic, google)",
+    "openai"
+  )
+  .option("--model <model>", "Specific model to use (optional)")
   .parse();
 
 async function main() {
   const options = program.opts();
 
-  // Check for OpenAI API key
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("❌ Error: OPENAI_API_KEY environment variable is not set");
-    console.log("Please set your OpenAI API key:");
-    console.log('export OPENAI_API_KEY="your-api-key-here"');
+  // Check for AI provider API key
+  const provider = options.provider as AIProvider;
+  const requiredEnvVars = {
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    google: "GOOGLE_API_KEY",
+  };
+
+  const requiredEnvVar = requiredEnvVars[provider];
+  if (!process.env[requiredEnvVar]) {
+    console.error(
+      `❌ Error: ${requiredEnvVar} environment variable is not set`
+    );
+    console.log(`Please set your ${provider} API key:`);
+    console.log(`export ${requiredEnvVar}="your-api-key-here"`);
+    console.log("\nSupported providers:");
+    console.log('  - OpenAI: export OPENAI_API_KEY="your-key"');
+    console.log('  - Anthropic: export ANTHROPIC_API_KEY="your-key"');
+    console.log('  - Google: export GOOGLE_API_KEY="your-key"');
     process.exit(1);
   }
 
@@ -135,6 +156,9 @@ async function main() {
         : "disabled"
     }`
   );
+  console.log(
+    `🤖 AI Provider: ${provider}${options.model ? ` (${options.model})` : ""}`
+  );
   console.log("");
 
   // Set up configurable timeout if specified
@@ -157,6 +181,8 @@ async function main() {
       },
       testCommand,
       logging,
+      aiProvider: provider,
+      aiModel: options.model,
     });
 
     // Clear timeout since we completed successfully

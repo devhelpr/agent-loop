@@ -4,7 +4,17 @@
 
 This project is a simple coding agent implemented with an Agent Loop architecture.
 
-It runs OpenAI LLM calls in a loop and depending on the response, it can read files, search the repo, write patches, run commands, and evaluate work quality. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
+It runs AI LLM calls in a loop using Vercel's AI SDK v5 and depending on the response, it can read files, search the repo, write patches, run commands, and evaluate work quality. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
+
+## Supported AI Providers
+
+The agent supports multiple AI providers through Vercel's AI SDK v5:
+
+- **OpenAI** (GPT-4o-mini, GPT-4, etc.)
+- **Anthropic** (Claude 3.5 Sonnet, etc.)
+- **Google** (Gemini 1.5 Flash, etc.)
+
+You can switch between providers using the `--provider` CLI option or by setting the appropriate environment variables.
 
 ## Key Features
 
@@ -196,6 +206,8 @@ Options:
   -m, --max-steps <number>        Maximum number of steps to execute (default: 20)
   -w, --max-writes <number>       Maximum number of file writes (default: 10)
   -c, --max-commands <number>     Maximum number of commands to run (default: 20)
+  --provider <provider>           AI provider to use (openai, anthropic, google) (default: openai)
+  --model <model>                 Specific model to use (optional)
   --no-console-log                Disable console logging
   --file-log                      Enable file logging
   --log-file <path>               Log file path (default: agent-log.txt)
@@ -222,14 +234,31 @@ agent-loop --prompt "Create a Node.js API" --test-command "npm" --test-args "tes
 
 # With file logging
 agent-loop --prompt "Create a website" --file-log --log-file my-agent.log
+
+# Using different AI providers
+agent-loop --prompt "Create a React app" --provider anthropic
+agent-loop --prompt "Build a Python API" --provider google --model gemini-1.5-pro
+agent-loop --prompt "Write TypeScript types" --provider openai --model gpt-4
 ```
 
 ## Environment Variables:
 
-- OPENAI_API_KEY : Your OpenAI API key (required)
-- AGENT_CONSOLE_LOGGING=false : Disable console logging (default: true)
-- AGENT_FILE_LOGGING=true : Enable file logging (default: false)
-- AGENT_LOG_FILE=path/to/log : Log file path (default: agent-log.txt)
+### AI Provider API Keys (choose one):
+- `OPENAI_API_KEY` : Your OpenAI API key
+- `ANTHROPIC_API_KEY` : Your Anthropic API key  
+- `GOOGLE_API_KEY` : Your Google API key
+
+### Agent Configuration:
+- `AGENT_CONSOLE_LOGGING=false` : Disable console logging (default: true)
+- `AGENT_FILE_LOGGING=true` : Enable file logging (default: false)
+- `AGENT_LOG_FILE=path/to/log` : Log file path (default: agent-log.txt)
+
+### Provider Selection:
+You can specify which AI provider to use via CLI options:
+- `--provider openai` : Use OpenAI (default)
+- `--provider anthropic` : Use Anthropic
+- `--provider google` : Use Google
+- `--model <model-name>` : Specify a specific model (optional)
 
 ## Installation
 

@@ -1,5 +1,7 @@
 import { LogConfig, log } from "../utils/logging";
-import { openai } from "./openai-client";
+import { generateObject } from "ai";
+import { z } from "zod";
+import { AIClient, AIProvider } from "./ai-client";
 
 // Global token tracking
 let totalInputTokens = 0;
@@ -47,10 +49,13 @@ interface ApiCallOptions {
   maxRetries?: number;
   timeoutMs?: number;
   truncateTranscript?: boolean;
+  provider?: AIProvider;
+  model?: string;
 }
-export async function makeOpenAICall(
+
+export async function makeAICall(
   messages: Array<{ role: string; content: string }>,
-  schema: any,
+  schema: z.ZodSchema,
   logConfig: LogConfig,
   options: ApiCallOptions = {}
 ) {
@@ -58,6 +63,8 @@ export async function makeOpenAICall(
     maxRetries = 3,
     timeoutMs = 120000,
     truncateTranscript = true,
+    provider,
+    model,
   } = options;
 
   // Truncate transcript if it's too long to avoid context length issues
@@ -76,22 +83,34 @@ export async function makeOpenAICall(
     );
   }
 
+  // Create AI client
+  const aiClient = provider
+    ? new AIClient({ provider, model })
+    : AIClient.fromEnvironment(provider, model);
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       log(
         logConfig,
         "step",
-        `Making OpenAI API call (attempt ${attempt}/${maxRetries})...`
+        `Making ${aiClient
+          .getProvider()
+          .toUpperCase()} API call (attempt ${attempt}/${maxRetries})...`
       );
 
-      const apiCallPromise = openai.chat.completions.create({
-        model: "gpt-5-mini",
-        messages: processedMessages as any,
-        response_format: {
-          type: "json_schema",
-          json_schema: schema,
-        },
-        reasoning_effort: "minimal",
+      // Convert messages to AI SDK format
+      const systemMessage = processedMessages.find((m) => m.role === "system");
+      const userMessages = processedMessages.filter((m) => m.role !== "system");
+
+      const apiCallPromise = generateObject({
+        model: aiClient.getModel(),
+        schema,
+        messages: userMessages.map((msg) => ({
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+        })),
+        system: systemMessage?.content,
+        maxOutputTokens: 4000,
       });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
@@ -99,7 +118,11 @@ export async function makeOpenAICall(
           () =>
             reject(
               new Error(
-                `OpenAI API call timeout after ${timeoutMs / 1000} seconds`
+                `${aiClient
+                  .getProvider()
+                  .toUpperCase()} API call timeout after ${
+                  timeoutMs / 1000
+                } seconds`
               )
             ),
           timeoutMs
@@ -111,9 +134,9 @@ export async function makeOpenAICall(
       // Extract token usage from response
       const usage = response.usage;
       if (usage) {
-        const inputTokens = usage.prompt_tokens || 0;
-        const outputTokens = usage.completion_tokens || 0;
-        const totalTokens = usage.total_tokens || 0;
+        const inputTokens = usage.inputTokens || 0;
+        const outputTokens = usage.outputTokens || 0;
+        const totalTokens = usage.totalTokens || 0;
 
         // Update global counters
         totalInputTokens += inputTokens;
@@ -121,33 +144,66 @@ export async function makeOpenAICall(
         totalCalls += 1;
 
         // Log token usage for this call
-        log(logConfig, "step", "OpenAI API call completed successfully", {
-          tokens: {
-            input: inputTokens,
-            output: outputTokens,
-            total: totalTokens,
-          },
-          cumulative: {
-            input: totalInputTokens,
-            output: totalOutputTokens,
-            total: totalInputTokens + totalOutputTokens,
-            calls: totalCalls,
-          },
-        });
+        log(
+          logConfig,
+          "step",
+          `${aiClient
+            .getProvider()
+            .toUpperCase()} API call completed successfully`,
+          {
+            tokens: {
+              input: inputTokens,
+              output: outputTokens,
+              total: totalTokens,
+            },
+            cumulative: {
+              input: totalInputTokens,
+              output: totalOutputTokens,
+              total: totalInputTokens + totalOutputTokens,
+              calls: totalCalls,
+            },
+          }
+        );
       } else {
         log(
           logConfig,
           "step",
-          "OpenAI API call completed successfully (no token usage data)"
+          `${aiClient
+            .getProvider()
+            .toUpperCase()} API call completed successfully (no token usage data)`
         );
       }
 
-      return response;
+      // Return response in OpenAI-compatible format for backward compatibility
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(response.object),
+              role: "assistant" as const,
+            },
+          },
+        ],
+        usage: usage
+          ? {
+              prompt_tokens: usage.inputTokens,
+              completion_tokens: usage.outputTokens,
+              total_tokens: usage.totalTokens,
+            }
+          : undefined,
+      };
     } catch (error) {
       const errorMsg = String(error);
-      log(logConfig, "step", `OpenAI API call attempt ${attempt} failed`, {
-        error: errorMsg,
-      });
+      log(
+        logConfig,
+        "step",
+        `${aiClient
+          .getProvider()
+          .toUpperCase()} API call attempt ${attempt} failed`,
+        {
+          error: errorMsg,
+        }
+      );
 
       if (attempt === maxRetries) {
         throw error; // Re-throw on final attempt
@@ -161,4 +217,109 @@ export async function makeOpenAICall(
   }
 
   throw new Error("All retry attempts failed");
+}
+
+// Backward compatibility function
+export async function makeOpenAICall(
+  messages: Array<{ role: string; content: string }>,
+  schema: any,
+  logConfig: LogConfig,
+  options: ApiCallOptions = {}
+) {
+  // Convert JSON schema to Zod schema if needed
+  let zodSchema: z.ZodSchema;
+
+  if (schema && typeof schema === "object") {
+    // Handle nested schema structure (like DecisionSchema)
+    const actualSchema = schema.schema || schema;
+
+    if (actualSchema && actualSchema.type === "object") {
+      // Convert JSON schema to Zod schema
+      zodSchema = convertJsonSchemaToZod(actualSchema);
+    } else if (schema && typeof schema.parse === "function") {
+      // Already a Zod schema
+      zodSchema = schema;
+    } else {
+      // Fallback to any object
+      zodSchema = z.any();
+    }
+  } else if (schema && typeof schema.parse === "function") {
+    // Already a Zod schema
+    zodSchema = schema;
+  } else {
+    // Fallback to any object
+    zodSchema = z.any();
+  }
+
+  return makeAICall(messages, zodSchema, logConfig, {
+    ...options,
+    provider: options.provider || "openai",
+  });
+}
+
+// Helper function to convert JSON schema to Zod schema
+function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
+  if (!jsonSchema || typeof jsonSchema !== "object") {
+    return z.any();
+  }
+
+  if (jsonSchema.type === "object" && jsonSchema.properties) {
+    const shape: Record<string, z.ZodSchema> = {};
+
+    for (const [key, prop] of Object.entries(jsonSchema.properties)) {
+      const propSchema = prop as any;
+      let zodProp: z.ZodSchema;
+
+      switch (propSchema.type) {
+        case "string":
+          if (propSchema.enum) {
+            zodProp = z.enum(propSchema.enum);
+          } else {
+            zodProp = z.string();
+          }
+          break;
+        case "number":
+          zodProp = z.number();
+          break;
+        case "boolean":
+          zodProp = z.boolean();
+          break;
+        case "array":
+          if (propSchema.items) {
+            const itemSchema = convertJsonSchemaToZod(propSchema.items);
+            zodProp = z.array(itemSchema);
+          } else {
+            zodProp = z.array(z.any());
+          }
+          break;
+        case "object":
+          zodProp = convertJsonSchemaToZod(propSchema);
+          break;
+        default:
+          zodProp = z.any();
+      }
+
+      if (jsonSchema.required && jsonSchema.required.includes(key)) {
+        shape[key] = zodProp;
+      } else {
+        shape[key] = zodProp.optional();
+      }
+    }
+
+    return z.object(shape);
+  }
+
+  // Handle other types
+  switch (jsonSchema.type) {
+    case "string":
+      return z.string();
+    case "number":
+      return z.number();
+    case "boolean":
+      return z.boolean();
+    case "array":
+      return z.array(z.any());
+    default:
+      return z.any();
+  }
 }
