@@ -13,9 +13,9 @@ export interface AIClientConfig {
 
 // Default models for each provider
 const DEFAULT_MODELS: Record<AIProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-  google: "gemini-1.5-flash",
+  openai: "gpt-5-mini",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
 };
 
 // Provider configurations

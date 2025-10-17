@@ -10,9 +10,9 @@ It runs AI LLM calls in a loop using Vercel's AI SDK v5 and depending on the res
 
 The agent supports multiple AI providers through Vercel's AI SDK v5:
 
-- **OpenAI** (GPT-4o-mini, GPT-4, etc.)
-- **Anthropic** (Claude 3.5 Sonnet, etc.)
-- **Google** (Gemini 1.5 Flash, etc.)
+- **OpenAI** (GPT-5-mini, GPT-5, etc.)
+- **Anthropic** (Claude 4.x Sonnet, etc.)
+- **Google** (Gemini 2.5 Flash, etc.)
 
 You can switch between providers using the `--provider` CLI option or by setting the appropriate environment variables.
 
