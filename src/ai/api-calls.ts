@@ -23,6 +23,36 @@ export function resetTokenStats() {
   totalCalls = 0;
 }
 
+// Helper function to extract meaningful schema information for logging
+function getSchemaInfo(schema: z.ZodSchema): string {
+  try {
+    // Access the internal definition with proper typing
+    const def = (schema as any)._def;
+
+    // Try to get the schema name or description
+    if (def && def.description) {
+      return def.description;
+    }
+
+    // For Zod object schemas, try to extract field information
+    if (def && def.type === "object" && def.shape) {
+      const shape = def.shape; // It's a getter, not a function
+      const fields = Object.keys(shape);
+      return `ZodObject with fields: ${fields.join(", ")}`;
+    }
+
+    // For other Zod types, show the type
+    if (def && def.type) {
+      return `Zod${def.type.charAt(0).toUpperCase() + def.type.slice(1)}`;
+    }
+
+    // Fallback to a generic description
+    return "Zod schema (structured output)";
+  } catch (error) {
+    return "Zod schema (unable to inspect)";
+  }
+}
+
 export function displayTokenSummary(
   tokenStats: ReturnType<typeof getTokenStats>
 ) {
@@ -98,6 +128,19 @@ export async function makeAICall(
           .toUpperCase()} API call (attempt ${attempt}/${maxRetries})...`
       );
 
+      // Log detailed schema information for debugging
+      log(
+        logConfig,
+        "debug",
+        `Schema details for ${aiClient.getProvider().toUpperCase()} call`,
+        {
+          schemaType: getSchemaInfo(schema),
+          schemaConstructor: schema.constructor.name,
+          hasDescription: !!(schema as any)._def?.description,
+          isZodObject: (schema as any)._def?.typeName === "ZodObject",
+        }
+      );
+
       // Convert messages to AI SDK format
       const systemMessage = processedMessages.find((m) => m.role === "system");
       const userMessages = processedMessages.filter((m) => m.role !== "system");
@@ -121,13 +164,14 @@ export async function makeAICall(
               (msg.content.length > 200 ? "..." : ""),
           })),
           totalMessages: processedMessages.length,
-          schema: schema.description || "No schema description",
+          schema: getSchemaInfo(schema),
           model: aiClient.getModel(),
           provider: aiClient.getProvider(),
         }
       );
 
-      const apiCallPromise = generateObject({
+      // Log the actual parameters being sent to generateObject
+      const generateObjectParams = {
         model: aiClient.getModel(),
         schema,
         messages: userMessages.map((msg) => ({
@@ -136,7 +180,23 @@ export async function makeAICall(
         })),
         system: systemMessage?.content,
         maxOutputTokens: 4000,
-      });
+      };
+
+      log(
+        logConfig,
+        "debug",
+        `generateObject parameters for ${aiClient.getProvider().toUpperCase()}`,
+        {
+          modelName: aiClient.getModelName(),
+          messageCount: generateObjectParams.messages.length,
+          hasSystemPrompt: !!generateObjectParams.system,
+          systemPromptLength: generateObjectParams.system?.length || 0,
+          maxOutputTokens: generateObjectParams.maxOutputTokens,
+          schemaInfo: getSchemaInfo(schema),
+        }
+      );
+
+      const apiCallPromise = generateObject(generateObjectParams);
 
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(
@@ -499,7 +559,11 @@ function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
       }
     }
 
-    return z.object(shape);
+    return z
+      .object(shape)
+      .describe(
+        `JSON Schema converted to Zod: ${jsonSchema.title || "Object"}`
+      );
   }
 
   // Handle other types
