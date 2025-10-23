@@ -82,10 +82,10 @@ Rules:
     "tool_input": {
       "instructions": [
         {
-          "file": "styles.css",
+          "file": "[filename with proper extension]",
           "operation": "replace",
           "line": 0,
-          "content": "/* Complete new CSS file */\nbody { margin: 0; }"
+          "content": "/* Complete new file */\n......"
         }
       ]
     }
@@ -97,10 +97,10 @@ Rules:
     "tool_input": {
       "instructions": [
         {
-          "file": "App.tsx",
+          "file": "[filename with proper extension]",
           "operation": "insert",
           "line": 5,
-          "content": "import React from 'react';"
+          "content": ...contents for insertion..."
         }
       ]
     }

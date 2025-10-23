@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import inquirer from "inquirer";
+import { input } from "@inquirer/prompts";
 import { runCodingAgent } from "./core/agent.js";
 import { AIProvider } from "./ai/ai-client.js";
 
@@ -91,11 +91,8 @@ async function main() {
     console.log(
       "This agent will help you accomplish coding tasks by iteratively editing your repository.\n"
     );
-
-    const answers = await inquirer.prompt([
-      {
-        type: "input",
-        name: "prompt",
+    try {
+      userPrompt = await input({
         message: "What would you like the agent to help you with?",
         validate: (input: string) => {
           if (!input.trim()) {
@@ -103,12 +100,17 @@ async function main() {
           }
           return true;
         },
-      },
-    ]);
-
-    userPrompt = answers.prompt;
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "ExitPromptError") {
+        console.log("👋 until next time!");
+        process.exit(0);
+      } else {
+        // Rethrow unknown errors
+        throw error;
+      }
+    }
   }
-
   // Parse numeric options
   const maxSteps = parseInt(options.maxSteps, 10);
   const maxWrites = parseInt(options.maxWrites, 10);
