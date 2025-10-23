@@ -1,9 +1,10 @@
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import { ollama } from "ai-sdk-ollama";
 import { LanguageModel } from "ai";
 
-export type AIProvider = "openai" | "anthropic" | "google";
+export type AIProvider = "openai" | "anthropic" | "google" | "ollama";
 
 export interface AIClientConfig {
   provider: AIProvider;
@@ -16,6 +17,7 @@ const DEFAULT_MODELS: Record<AIProvider, string> = {
   openai: "gpt-5-mini",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
+  ollama: "granite4:tiny-h",
 };
 
 // Provider configurations
@@ -40,6 +42,14 @@ const providerConfigs = {
       return google(model);
     },
     getDefaultModel: () => DEFAULT_MODELS.google,
+  },
+  ollama: {
+    createModel: (model: string, apiKey?: string) => {
+      // Ollama typically runs locally and doesn't require API keys
+      // The baseURL can be configured via OLLAMA_BASE_URL environment variable
+      return ollama(model);
+    },
+    getDefaultModel: () => DEFAULT_MODELS.ollama,
   },
 };
 
@@ -93,13 +103,21 @@ export class AIClient {
     });
   }
 
+  static createOllama(model?: string, apiKey?: string): AIClient {
+    return new AIClient({
+      provider: "ollama",
+      model,
+      apiKey, // Ollama typically doesn't use API keys
+    });
+  }
+
   // Create client from environment variables
   static fromEnvironment(provider?: AIProvider, model?: string): AIClient {
     const detectedProvider = provider || detectProviderFromEnv();
 
     if (!detectedProvider) {
       throw new Error(
-        "No AI provider detected. Please set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY"
+        "No AI provider detected. Please set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, or use 'ollama' provider"
       );
     }
 
@@ -114,6 +132,7 @@ function detectProviderFromEnv(): AIProvider | null {
   if (process.env.OPENAI_API_KEY) return "openai";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.GOOGLE_API_KEY) return "google";
+  if (process.env.OLLAMA_BASE_URL || process.env.OLLAMA_HOST) return "ollama";
   return null;
 }
 

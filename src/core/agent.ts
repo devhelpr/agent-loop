@@ -258,7 +258,13 @@ When ready to speak to the user, choose final_answer.
             },
           },
           logConfig,
-          { maxRetries: 2, timeoutMs: 60000, truncateTranscript: false }
+          {
+            maxRetries: 2,
+            timeoutMs: 60000,
+            truncateTranscript: false,
+            provider: opts?.aiProvider,
+            model: opts?.aiModel,
+          }
         );
       } catch (summaryError) {
         logError(

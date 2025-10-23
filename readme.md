@@ -258,6 +258,7 @@ You can specify which AI provider to use via CLI options:
 - `--provider openai` : Use OpenAI (default)
 - `--provider anthropic` : Use Anthropic
 - `--provider google` : Use Google
+- `--provider ollama` : Use Ollama
 - `--model <model-name>` : Specify a specific model (optional)
 
 ## Installation

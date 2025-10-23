@@ -61,10 +61,11 @@ async function main() {
     openai: "OPENAI_API_KEY",
     anthropic: "ANTHROPIC_API_KEY",
     google: "GOOGLE_API_KEY",
+    ollama: null, // Ollama doesn't require an API key
   };
 
   const requiredEnvVar = requiredEnvVars[provider];
-  if (!process.env[requiredEnvVar]) {
+  if (requiredEnvVar && !process.env[requiredEnvVar]) {
     console.error(
       `❌ Error: ${requiredEnvVar} environment variable is not set`
     );
@@ -74,6 +75,7 @@ async function main() {
     console.log('  - OpenAI: export OPENAI_API_KEY="your-key"');
     console.log('  - Anthropic: export ANTHROPIC_API_KEY="your-key"');
     console.log('  - Google: export GOOGLE_API_KEY="your-key"');
+    console.log("  - Ollama: No API key required (runs locally)");
     process.exit(1);
   }
 
