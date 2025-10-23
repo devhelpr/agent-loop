@@ -80,6 +80,7 @@ export async function runCodingAgent(
     logDecisions: true,
     logTranscript: false,
     logErrors: true, // Enable error logging by default
+    logPromptContext: true, // Enable prompt/context logging by default
     fileLogging: {
       enabled: true,
       filePath: process.env.AGENT_LOG_FILE || "agent-log.txt",

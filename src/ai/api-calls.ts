@@ -102,6 +102,31 @@ export async function makeAICall(
       const systemMessage = processedMessages.find((m) => m.role === "system");
       const userMessages = processedMessages.filter((m) => m.role !== "system");
 
+      // Log prompt and context information
+      log(
+        logConfig,
+        "prompt-context",
+        `Prompt and context for ${aiClient
+          .getProvider()
+          .toUpperCase()} API call`,
+        {
+          systemPrompt: systemMessage?.content || "No system prompt",
+          userMessages: userMessages.map((msg, index) => ({
+            index: index + 1,
+            role: msg.role,
+            content: msg.content,
+            contentLength: msg.content.length,
+            preview:
+              msg.content.substring(0, 200) +
+              (msg.content.length > 200 ? "..." : ""),
+          })),
+          totalMessages: processedMessages.length,
+          schema: schema.description || "No schema description",
+          model: aiClient.getModel(),
+          provider: aiClient.getProvider(),
+        }
+      );
+
       const apiCallPromise = generateObject({
         model: aiClient.getModel(),
         schema,

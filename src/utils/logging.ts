@@ -8,6 +8,7 @@ export interface LogConfig {
   logDecisions?: boolean;
   logTranscript?: boolean;
   logErrors?: boolean; // Add error logging flag
+  logPromptContext?: boolean; // Add prompt/context logging flag
   fileLogging?: {
     enabled: boolean;
     filePath: string;
@@ -85,6 +86,8 @@ function shouldLogCategory(category: string, config: LogConfig): boolean {
       return config.logTranscript ?? false;
     case "error":
       return config.logErrors ?? true;
+    case "prompt-context":
+      return config.logPromptContext ?? true;
     default:
       return true; // Log unknown categories by default
   }
