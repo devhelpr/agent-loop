@@ -20,7 +20,7 @@ AVAILABLE ACTIONS AND FORMATS:
 {
   "action": "read_files",
   "tool_input": {
-    "paths": ["src/App.tsx", "package.json"]
+    "paths": ["[filename with proper extension]", ...]
   },
   "rationale": "Need to examine the current file structure"
 }
@@ -49,7 +49,7 @@ AVAILABLE ACTIONS AND FORMATS:
 {
   "action": "evaluate_work",
   "tool_input": {
-    "files": ["src/App.tsx", "styles.css"],
+    "files": ["[filename with proper extension]", ...],
     "criteria": "styling"
   },
   "rationale": "Evaluating the styling and structure"
