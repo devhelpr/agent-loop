@@ -18,7 +18,7 @@
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^2.0.0",
-    "@inquirer/prompts": "^7.9.0",
+    "@clack/prompts": "^0.8.0",
     "ai": "^5.0.0",
     "ai-sdk-ollama": "^1.0.0",
     "commander": "^12.0.0",

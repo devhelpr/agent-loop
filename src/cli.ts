@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import { input } from "@inquirer/prompts";
+import { text, isCancel } from "@clack/prompts";
 import { runCodingAgent } from "./core/agent.js";
 import { AIProvider } from "./ai/ai-client.js";
 
@@ -92,23 +92,25 @@ async function main() {
       "This agent will help you accomplish coding tasks by iteratively editing your repository.\n"
     );
     try {
-      userPrompt = await input({
+      const promptResult = await text({
         message: "What would you like the agent to help you with?",
         validate: (input: string) => {
           if (!input.trim()) {
             return "Please enter a prompt describing what you want to accomplish";
           }
-          return true;
+          return undefined;
         },
       });
-    } catch (error) {
-      if (error instanceof Error && error.name === "ExitPromptError") {
+
+      if (isCancel(promptResult)) {
         console.log("👋 until next time!");
         process.exit(0);
-      } else {
-        // Rethrow unknown errors
-        throw error;
       }
+
+      userPrompt = promptResult;
+    } catch (error) {
+      // Rethrow unknown errors
+      throw error;
     }
   }
   // Parse numeric options

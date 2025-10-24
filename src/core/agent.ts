@@ -4,8 +4,6 @@ import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
-  handleGeneratePatch,
-  handleASTRefactor,
   handleRunCmd,
   handleEvaluateWork,
 } from "../handlers";
@@ -29,7 +27,6 @@ function validateDecision(parsed: any): Decision | null {
     "read_files",
     "search_repo",
     "write_patch",
-    "generate_patch",
     "run_cmd",
     "evaluate_work",
     "final_answer",
@@ -311,28 +308,6 @@ When ready to speak to the user, choose final_answer.
 
     if (decision.action === "write_patch") {
       writes = await handleWritePatch(
-        decision,
-        transcript,
-        writes,
-        caps,
-        logConfig
-      );
-      continue;
-    }
-
-    if (decision.action === "generate_patch") {
-      writes = await handleGeneratePatch(
-        decision,
-        transcript,
-        writes,
-        caps,
-        logConfig
-      );
-      continue;
-    }
-
-    if (decision.action === "ast_refactor") {
-      writes = await handleASTRefactor(
         decision,
         transcript,
         writes,
