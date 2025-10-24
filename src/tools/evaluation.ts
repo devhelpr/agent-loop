@@ -13,7 +13,8 @@ import { LogConfig, log } from "../utils/logging";
 
 export async function evaluate_work(
   files: string[],
-  criteria?: string
+  criteria?: string,
+  userGoal?: string
 ): Promise<{
   evaluation: {
     overall_score: number;
@@ -67,7 +68,11 @@ export async function evaluate_work(
   // Analyze the files based on criteria
   let analysis;
   try {
-    analysis = await analyzeFiles(file_contents, criteria || "general");
+    analysis = await analyzeFiles(
+      file_contents,
+      criteria || "general",
+      userGoal
+    );
   } catch (err) {
     console.log(`[DEBUG] Analysis failed:`, err);
     // Return a default analysis if the analysis function fails
@@ -94,7 +99,8 @@ export async function evaluate_work(
 
 async function analyzeFiles(
   file_contents: Record<string, string>,
-  criteria: string
+  criteria: string,
+  userGoal?: string
 ): Promise<{
   overall_score: number;
   strengths: string[];
@@ -147,6 +153,14 @@ async function analyzeFiles(
       }
 
       // Prepare the evaluation request
+      const userContent = `Please evaluate the following ${
+        file.split(".").pop()?.toUpperCase() || "file"
+      } code:\n\nFile: ${file}\n\n${content}${
+        userGoal
+          ? `\n\nUSER'S ORIGINAL GOAL: ${userGoal}\n\nPlease ensure your evaluation focuses on how well this code fulfills the user's specific goal and only suggest changes that are necessary to achieve that goal.`
+          : ""
+      }`;
+
       const messages = [
         {
           role: "system",
@@ -154,9 +168,7 @@ async function analyzeFiles(
         },
         {
           role: "user",
-          content: `Please evaluate the following ${
-            file.split(".").pop()?.toUpperCase() || "file"
-          } code:\n\nFile: ${file}\n\n${content}`,
+          content: userContent,
         },
       ];
 

@@ -86,18 +86,23 @@ Rules:
 IMPORTANT WORKFLOW:
 1. Create initial files using write_patch with full file format when starting from scratch
 2. After creating files, ALWAYS use evaluate_work to assess the quality and get improvement suggestions
-3. Use write_patch (PREFERRED) for ALL subsequent improvements, styling changes, content updates, and refinements - always provide complete file content
-4. Make incremental improvements by reading the current file, making changes, and writing the complete updated file
-5. Use evaluate_work again after improvements to track progress and get new suggestions
+3. CRITICAL: After evaluation, carefully consider if improvements are truly necessary and align with the user's original goal
+4. If improvements are needed, ALWAYS read the current file content first with read_files before making any changes
+5. Use write_patch ONLY when you have a clear, specific improvement that directly addresses the user's goal
+6. When using write_patch after evaluation, ensure you provide the COMPLETE file content with only the necessary changes
+7. Avoid making changes that deviate from the user's original request - focus on the core goal
+8. If evaluation shows the work already meets the user's requirements, consider final_answer instead of making unnecessary changes
 
 WRITE_PATCH GUIDELINES:
-- Always read the target file first with read_files to understand current content
-- Make only the really necessary changes to an existing file! Dont make things up that the user didnt ask for!
+- ALWAYS read the target file first with read_files to understand current content before making ANY changes
+- Make only the really necessary changes to an existing file! Don't make things up that the user didn't ask for!
 - Use full file format: "=== file:[filename] ===\n<entire file content>\n=== end ==="
 - Always provide the complete file content, not just changes
 - For new files: provide the complete file content
 - For existing files: read the current content, make your changes, then provide the complete updated content
 - The tool will replace the entire file with your provided content
+- CRITICAL: After evaluation, be extra careful to preserve the user's original intent and only make changes that directly improve the user's goal
+- If you're unsure about a change after evaluation, consider if it's truly necessary or if the current state already satisfies the user's requirements
 
 
 

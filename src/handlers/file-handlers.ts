@@ -60,11 +60,26 @@ export async function handleWritePatch(
   }
 
   const patchContent = String(decision.tool_input.patch || "");
+
+  // Safety check: warn if patch content seems incomplete or suspiciously short
+  if (patchContent.length < 50) {
+    log(
+      logConfig,
+      "tool-call",
+      "WARNING: write_patch content is very short, may be incomplete",
+      {
+        patchLength: patchContent.length,
+        patchPreview: patchContent,
+      }
+    );
+  }
+
   log(logConfig, "tool-call", "Executing write_patch", {
     patchLength: patchContent.length,
     patchPreview:
       patchContent.substring(0, 200) + (patchContent.length > 200 ? "..." : ""),
   });
+
   const out = await write_patch(patchContent);
   log(logConfig, "tool-result", "write_patch completed", out);
   const newWrites = writes + 1;
