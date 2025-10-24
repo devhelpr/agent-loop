@@ -4,8 +4,6 @@ import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
-  handleGeneratePatch,
-  handleASTRefactor,
   handleRunCmd,
   handleEvaluateWork,
 } from "../handlers";
@@ -29,7 +27,6 @@ function validateDecision(parsed: any): Decision | null {
     "read_files",
     "search_repo",
     "write_patch",
-    "generate_patch",
     "run_cmd",
     "evaluate_work",
     "final_answer",
@@ -80,6 +77,7 @@ export async function runCodingAgent(
     logDecisions: true,
     logTranscript: false,
     logErrors: true, // Enable error logging by default
+    logPromptContext: true, // Enable prompt/context logging by default
     fileLogging: {
       enabled: true,
       filePath: process.env.AGENT_LOG_FILE || "agent-log.txt",
@@ -258,7 +256,13 @@ When ready to speak to the user, choose final_answer.
             },
           },
           logConfig,
-          { maxRetries: 2, timeoutMs: 60000, truncateTranscript: false }
+          {
+            maxRetries: 2,
+            timeoutMs: 60000,
+            truncateTranscript: false,
+            provider: opts?.aiProvider,
+            model: opts?.aiModel,
+          }
         );
       } catch (summaryError) {
         logError(
@@ -304,28 +308,6 @@ When ready to speak to the user, choose final_answer.
 
     if (decision.action === "write_patch") {
       writes = await handleWritePatch(
-        decision,
-        transcript,
-        writes,
-        caps,
-        logConfig
-      );
-      continue;
-    }
-
-    if (decision.action === "generate_patch") {
-      writes = await handleGeneratePatch(
-        decision,
-        transcript,
-        writes,
-        caps,
-        logConfig
-      );
-      continue;
-    }
-
-    if (decision.action === "ast_refactor") {
-      writes = await handleASTRefactor(
         decision,
         transcript,
         writes,

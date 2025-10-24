@@ -10,16 +10,21 @@ export async function handleEvaluateWork(
 ) {
   if (decision.action !== "evaluate_work") return;
 
+  // Extract user's goal from transcript (first user message)
+  const userGoal = transcript.find((msg) => msg.role === "user")?.content;
+
   log(logConfig, "tool-call", "Executing evaluate_work", {
     files: decision.tool_input.files,
     criteria: decision.tool_input.criteria,
+    hasUserGoal: !!userGoal,
   });
 
   let out;
   try {
     out = await evaluate_work(
       decision.tool_input.files ?? [],
-      decision.tool_input.criteria
+      decision.tool_input.criteria,
+      userGoal
     );
   } catch (error) {
     log(logConfig, "tool-error", "evaluate_work failed", {
@@ -72,7 +77,9 @@ export async function handleEvaluateWork(
 EVALUATION SUMMARY:
 - Overall Score: ${out.evaluation.overall_score}/100
 - Files Analyzed: ${out.files_analyzed.join(", ")}
-- Criteria: ${out.criteria_used}
+- Criteria: ${out.criteria_used}${
+    userGoal ? `\n- User's Goal: ${userGoal}` : ""
+  }
 
 STRENGTHS:
 ${out.evaluation.strengths.map((s) => `✓ ${s}`).join("\n")}
@@ -89,6 +96,16 @@ ${out.evaluation.specific_suggestions
       } priority)`
   )
   .join("\n")}
+
+IMPORTANT GUIDANCE:
+- If the overall score is 70+ and the work meets the user's core requirements, consider final_answer
+- Only make changes that directly address the user's original goal${
+    userGoal ? `: "${userGoal}"` : ""
+  }
+- Always read files with read_files before making any modifications
+- Focus on high-priority suggestions that align with the user's request
+- Avoid making changes that deviate from the user's original intent
+- The evaluation has been performed with the user's goal in mind - suggestions should be goal-aligned
 `;
 
   transcript.push({

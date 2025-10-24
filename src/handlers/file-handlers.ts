@@ -1,6 +1,6 @@
 import { Decision } from "../types/decision";
 import { LogConfig, log } from "../utils/logging";
-import { read_files, write_patch, generate_patch } from "../tools";
+import { read_files, write_patch } from "../tools";
 import { MessageArray } from "../types/handlers";
 
 export async function handleReadFiles(
@@ -60,11 +60,26 @@ export async function handleWritePatch(
   }
 
   const patchContent = String(decision.tool_input.patch || "");
+
+  // Safety check: warn if patch content seems incomplete or suspiciously short
+  if (patchContent.length < 50) {
+    log(
+      logConfig,
+      "tool-call",
+      "WARNING: write_patch content is very short, may be incomplete",
+      {
+        patchLength: patchContent.length,
+        patchPreview: patchContent,
+      }
+    );
+  }
+
   log(logConfig, "tool-call", "Executing write_patch", {
     patchLength: patchContent.length,
     patchPreview:
       patchContent.substring(0, 200) + (patchContent.length > 200 ? "..." : ""),
   });
+
   const out = await write_patch(patchContent);
   log(logConfig, "tool-result", "write_patch completed", out);
   const newWrites = writes + 1;
@@ -73,82 +88,4 @@ export async function handleWritePatch(
     content: `write_patch:${JSON.stringify(out)}`,
   });
   return newWrites;
-}
-
-export async function handleGeneratePatch(
-  decision: Decision,
-  transcript: MessageArray,
-  writes: number,
-  caps: { maxWrites: number },
-  logConfig: LogConfig
-): Promise<number> {
-  if (decision.action !== "generate_patch") return writes;
-
-  if (writes >= caps.maxWrites) {
-    log(logConfig, "tool-result", "generate_patch failed: cap exceeded", {
-      writes,
-      maxWrites: caps.maxWrites,
-    });
-    transcript.push({
-      role: "assistant",
-      content: `generate_patch:ERROR: write cap exceeded`,
-    });
-    return writes;
-  }
-
-  const instructions = decision.tool_input.instructions || [];
-  log(logConfig, "tool-call", "Executing generate_patch", {
-    instructionCount: instructions.length,
-    instructions: instructions.map((i) => ({
-      file: i.file,
-      operation: i.operation,
-    })),
-  });
-
-  try {
-    const result = await generate_patch(instructions);
-
-    if (result.success && result.patch) {
-      // Apply the generated patch using the existing write_patch function
-      const patchResult = await write_patch(result.patch);
-      log(logConfig, "tool-result", "generate_patch completed", {
-        generated: result,
-        applied: patchResult,
-      });
-
-      const newWrites = writes + 1;
-      transcript.push({
-        role: "assistant",
-        content: `generate_patch:${JSON.stringify({
-          success: true,
-          generated: result,
-          applied: patchResult,
-        })}`,
-      });
-      return newWrites;
-    } else {
-      log(logConfig, "tool-result", "generate_patch failed", result);
-      transcript.push({
-        role: "assistant",
-        content: `generate_patch:${JSON.stringify(result)}`,
-      });
-      return writes;
-    }
-  } catch (error) {
-    const errorResult = {
-      success: false,
-      error: `Failed to generate patch: ${error}`,
-    };
-    log(
-      logConfig,
-      "tool-result",
-      "generate_patch failed with error",
-      errorResult
-    );
-    transcript.push({
-      role: "assistant",
-      content: `generate_patch:${JSON.stringify(errorResult)}`,
-    });
-    return writes;
-  }
 }

@@ -11,8 +11,9 @@ It runs AI LLM calls in a loop using Vercel's AI SDK v5 and depending on the res
 The agent supports multiple AI providers through Vercel's AI SDK v5:
 
 - **OpenAI** (GPT-5-mini, GPT-5, etc.)
-- **Anthropic** (Claude 4.x Sonnet, etc.)
+- **Anthropic** (Claude Sonnet 4.5, etc.)
 - **Google** (Gemini 2.5 Flash, etc.)
+- **Ollama** (Local models like Granite4, etc.)
 
 You can switch between providers using the `--provider` CLI option or by setting the appropriate environment variables.
 
@@ -20,22 +21,19 @@ You can switch between providers using the `--provider` CLI option or by setting
 
 - **Manual Tool Calls**: Uses manual tool calls instead of OpenAI function calling for more control
 - **Dual Patch Formats**: Supports both full-file patches (for new files) and unified diff patches (for incremental improvements)
-- **AST-Based Refactoring**: Advanced TypeScript refactoring using the TypeScript compiler API for symbol renaming, import management, and structural changes
-- **Structured Patch Generation**: Generate precise patches from natural language instructions with line-specific edits
 - **Work Evaluation**: Built-in evaluation tool that analyzes created files and provides structured feedback with scores, strengths, improvements, and specific suggestions
 - **Diff Parsing**: Unified diff patch parsing with comprehensive error handling
 - **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with diff patches → re-evaluate
+- **Multi-Provider Support**: Seamlessly switch between OpenAI, Anthropic, Google, and Ollama providers
 
 ## Tools Available
 
 1. **read_files**: Read and analyze existing files
 2. **search_repo**: Search the repository for patterns or content
 3. **write_patch**: Apply patches in unified diff format (preferred) or full-file format
-4. **generate_patch**: Generate structured patches from natural language instructions
-5. **ast_refactor**: Perform AST-based refactoring operations using TypeScript compiler API
-6. **run_cmd**: Execute shell commands
-7. **evaluate_work**: Analyze files and provide structured feedback for improvements
-8. **final_answer**: Complete the task and generate a summary
+4. **run_cmd**: Execute shell commands
+5. **evaluate_work**: Analyze files and provide structured feedback for improvements
+6. **final_answer**: Complete the task and generate a summary
 
 ## High-Level Agent Loop
 
@@ -53,10 +51,8 @@ flowchart LR
         H[read_files]
         I[search_repo]
         J[write_patch]
-        K[generate_patch]
-        L[ast_refactor]
-        M[run_cmd]
-        N[evaluate_work]
+        K[run_cmd]
+        L[evaluate_work]
     end
     
     D -.-> H
@@ -64,8 +60,6 @@ flowchart LR
     D -.-> J
     D -.-> K
     D -.-> L
-    D -.-> M
-    D -.-> N
     
     style A fill:#e1f5fe
     style B fill:#fff3e0
@@ -79,8 +73,6 @@ flowchart LR
     style J fill:#f0f8ff
     style K fill:#f0f8ff
     style L fill:#f0f8ff
-    style M fill:#f0f8ff
-    style N fill:#f0f8ff
 ```
 
 ## Detailed Architecture Diagram
@@ -90,7 +82,7 @@ flowchart TD
     A[Start Agent] --> B[Initialize Config & Reset Token Stats]
     B --> C[Setup Safety Caps & Transcript]
     C --> D[Step Counter: 1 to maxSteps]
-    D --> E[Make OpenAI API Call with Retries]
+    D --> E[Make AI API Call with Retries]
     
     E --> F{API Call Success?}
     F -->|Failed| G[Log Error & Return with Token Stats]
@@ -103,59 +95,47 @@ flowchart TD
     K -->|read_files| L[Read Files Handler]
     K -->|search_repo| M[Search Repository Handler]
     K -->|write_patch| N[Write Patch Handler]
-    K -->|generate_patch| O[Generate Patch Handler]
-    K -->|ast_refactor| P[AST Refactor Handler]
-    K -->|run_cmd| Q[Run Command Handler]
-    K -->|evaluate_work| R[Evaluate Work Handler]
-    K -->|final_answer| S[Generate Summary with OpenAI]
-    K -->|unknown| T[Log Error & Add to Transcript]
+    K -->|run_cmd| O[Run Command Handler]
+    K -->|evaluate_work| P[Evaluate Work Handler]
+    K -->|final_answer| Q[Generate Summary with AI]
+    K -->|unknown| R[Log Error & Add to Transcript]
     
-    L --> U[Update Transcript with Results]
-    M --> U
-    N --> V{Check Write Limit}
-    O --> W{Check Write Limit}
-    P --> X{Check Write Limit}
-    Q --> Y{Check Command Limit}
-    R --> Z[Analyze Files & Generate Structured Feedback]
-    T --> U
+    L --> S[Update Transcript with Results]
+    M --> S
+    N --> T{Check Write Limit}
+    O --> U{Check Command Limit}
+    P --> V[Analyze Files & Generate Structured Feedback]
+    R --> S
     
-    V -->|Within Limit| U
-    V -->|Exceeded| AA[Stop: Write Limit Reached]
-    W -->|Within Limit| U
-    W -->|Exceeded| AA
-    X -->|Within Limit| U
-    X -->|Exceeded| AA
-    Y -->|Within Limit| U
-    Y -->|Exceeded| BB[Stop: Command Limit Reached]
+    T -->|Within Limit| S
+    T -->|Exceeded| W[Stop: Write Limit Reached]
+    U -->|Within Limit| S
+    U -->|Exceeded| X[Stop: Command Limit Reached]
     
-    Z --> CC[Add Evaluation Results to Transcript]
-    CC --> U
+    V --> Y[Add Evaluation Results to Transcript]
+    Y --> S
     
-    U --> DD{Step < maxSteps?}
-    DD -->|Yes| D
-    DD -->|No| EE[Stop: Max Steps Reached]
+    S --> Z{Step < maxSteps?}
+    Z -->|Yes| D
+    Z -->|No| AA[Stop: Max Steps Reached]
     
-    S --> FF[Display Token Summary & Return Result]
-    AA --> FF
-    BB --> FF
-    EE --> FF
-    G --> FF
-    FF --> GG[Process Exit]
+    Q --> BB[Display Token Summary & Return Result]
+    W --> BB
+    X --> BB
+    AA --> BB
+    G --> BB
+    BB --> CC[Process Exit]
     
     style A fill:#e1f5fe
-    style FF fill:#c8e6c9
-    style GG fill:#ffcdd2
+    style BB fill:#c8e6c9
+    style CC fill:#ffcdd2
     style E fill:#fff3e0
     style K fill:#f3e5f5
-    style R fill:#e8f5e8
-    style Z fill:#e8f5e8
-    style CC fill:#e8f5e8
-    style V fill:#fff9c4
-    style W fill:#fff9c4
-    style X fill:#fff9c4
-    style Y fill:#fff9c4
-    style O fill:#f0f8ff
-    style P fill:#f0f8ff
+    style P fill:#e8f5e8
+    style V fill:#e8f5e8
+    style Y fill:#e8f5e8
+    style T fill:#fff9c4
+    style U fill:#fff9c4
 ```
 
 ## CLI Usage
@@ -239,6 +219,7 @@ agent-loop --prompt "Create a website" --file-log --log-file my-agent.log
 agent-loop --prompt "Create a React app" --provider anthropic
 agent-loop --prompt "Build a Python API" --provider google --model gemini-1.5-pro
 agent-loop --prompt "Write TypeScript types" --provider openai --model gpt-4
+agent-loop --prompt "Create a simple script" --provider ollama --model granite4:tiny-h
 ```
 
 ## Environment Variables:
@@ -247,6 +228,7 @@ agent-loop --prompt "Write TypeScript types" --provider openai --model gpt-4
 - `OPENAI_API_KEY` : Your OpenAI API key
 - `ANTHROPIC_API_KEY` : Your Anthropic API key  
 - `GOOGLE_API_KEY` : Your Google API key
+- `OLLAMA_BASE_URL` or `OLLAMA_HOST` : Ollama server URL (optional, defaults to localhost:11434)
 
 ### Agent Configuration:
 - `AGENT_CONSOLE_LOGGING=false` : Disable console logging (default: true)
@@ -258,6 +240,7 @@ You can specify which AI provider to use via CLI options:
 - `--provider openai` : Use OpenAI (default)
 - `--provider anthropic` : Use Anthropic
 - `--provider google` : Use Google
+- `--provider ollama` : Use Ollama
 - `--model <model-name>` : Specify a specific model (optional)
 
 ## Installation
@@ -267,4 +250,8 @@ npm install
 npm start
 ```
 
+## What did I learn?
 
+- examples in a prompt are helpful, but can also lead to confusion and hallucinations if not used carefully. Especially with smaller models. It happened that code was generated based on examples, but was not actually what the user wanted. Same with filenames in the examples.
+
+- Ollama is a great way to run local models and helpful for testing and development.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
-import inquirer from "inquirer";
+import { text, isCancel } from "@clack/prompts";
 import { runCodingAgent } from "./core/agent.js";
 import { AIProvider } from "./ai/ai-client.js";
 
@@ -61,10 +61,11 @@ async function main() {
     openai: "OPENAI_API_KEY",
     anthropic: "ANTHROPIC_API_KEY",
     google: "GOOGLE_API_KEY",
+    ollama: null, // Ollama doesn't require an API key
   };
 
   const requiredEnvVar = requiredEnvVars[provider];
-  if (!process.env[requiredEnvVar]) {
+  if (requiredEnvVar && !process.env[requiredEnvVar]) {
     console.error(
       `❌ Error: ${requiredEnvVar} environment variable is not set`
     );
@@ -74,6 +75,7 @@ async function main() {
     console.log('  - OpenAI: export OPENAI_API_KEY="your-key"');
     console.log('  - Anthropic: export ANTHROPIC_API_KEY="your-key"');
     console.log('  - Google: export GOOGLE_API_KEY="your-key"');
+    console.log("  - Ollama: No API key required (runs locally)");
     process.exit(1);
   }
 
@@ -89,24 +91,28 @@ async function main() {
     console.log(
       "This agent will help you accomplish coding tasks by iteratively editing your repository.\n"
     );
-
-    const answers = await inquirer.prompt([
-      {
-        type: "input",
-        name: "prompt",
+    try {
+      const promptResult = await text({
         message: "What would you like the agent to help you with?",
         validate: (input: string) => {
           if (!input.trim()) {
             return "Please enter a prompt describing what you want to accomplish";
           }
-          return true;
+          return undefined;
         },
-      },
-    ]);
+      });
 
-    userPrompt = answers.prompt;
+      if (isCancel(promptResult)) {
+        console.log("👋 until next time!");
+        process.exit(0);
+      }
+
+      userPrompt = promptResult;
+    } catch (error) {
+      // Rethrow unknown errors
+      throw error;
+    }
   }
-
   // Parse numeric options
   const maxSteps = parseInt(options.maxSteps, 10);
   const maxWrites = parseInt(options.maxWrites, 10);
