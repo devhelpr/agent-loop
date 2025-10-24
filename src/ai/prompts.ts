@@ -77,7 +77,7 @@ Rules:
   {
     "action": "write_patch",
     "tool_input": {
-      "patch": "=== file:relative/path.ext ===\n<entire new file content>\n=== end ==="
+      "patch": "=== file:[filename] ===\n<entire new file content>\n=== end ==="
     }
   }
 
@@ -91,7 +91,7 @@ IMPORTANT WORKFLOW:
 
 WRITE_PATCH GUIDELINES:
 - Always read the target file first with read_files to understand current content
-- Use full file format: "=== file:relative/path.ext ===\n<entire file content>\n=== end ==="
+- Use full file format: "=== file:[filename] ===\n<entire file content>\n=== end ==="
 - Always provide the complete file content, not just changes
 - For new files: provide the complete file content
 - For existing files: read the current content, make your changes, then provide the complete updated content
