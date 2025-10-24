@@ -107,8 +107,18 @@ export async function write_patch(patch: string) {
       await fs.writeFile(file, body, "utf8");
       replaced.push(file);
     }
-    return { applied: replaced, mode: "full-file" };
+    return {
+      success: true,
+      files_written: replaced.length,
+      message: `Successfully wrote ${replaced.length} file(s): ${replaced.join(
+        ", "
+      )}`,
+    };
   }
 
-  return { applied: [], mode: "none", error: "No recognized full-file blocks" };
+  return {
+    success: false,
+    files_written: 0,
+    error: "No recognized full-file blocks",
+  };
 }

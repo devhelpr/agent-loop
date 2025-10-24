@@ -42,8 +42,9 @@ ${content}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -63,9 +64,10 @@ ${content2}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(file1);
-      expect(result.applied).toContain(file2);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(2);
+      expect(result.message).toContain(file1);
+      expect(result.message).toContain(file2);
 
       const file1Content = await fs.readFile(file1, "utf-8");
       const file2Content = await fs.readFile(file2, "utf-8");
@@ -86,8 +88,9 @@ ${newContent}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(newContent);
@@ -102,8 +105,9 @@ ${content}`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -118,8 +122,9 @@ ${content}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -135,8 +140,9 @@ ${content}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -151,8 +157,9 @@ ${content.replace(/\n/g, "\\n")}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(testFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(testFile);
 
       const fileContent = await fs.readFile(testFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -167,8 +174,9 @@ ${content}=== end ===`;
 
       const result = await write_patch(patch);
 
-      expect(result.applied).toContain(nestedFile);
-      expect(result.mode).toBe("full-file");
+      expect(result.success).toBe(true);
+      expect(result.files_written).toBe(1);
+      expect(result.message).toContain(nestedFile);
 
       const fileContent = await fs.readFile(nestedFile, "utf-8");
       expect(fileContent).toBe(content);
@@ -177,16 +185,16 @@ ${content}=== end ===`;
     it("should handle empty patches gracefully", async () => {
       const result = await write_patch("");
 
-      expect(result.applied).toEqual([]);
-      expect(result.mode).toBe("none");
+      expect(result.success).toBe(false);
+      expect(result.files_written).toBe(0);
       expect(result.error).toBe("No recognized full-file blocks");
     });
 
     it("should handle malformed patches gracefully", async () => {
       const result = await write_patch("This is not a valid patch");
 
-      expect(result.applied).toEqual([]);
-      expect(result.mode).toBe("none");
+      expect(result.success).toBe(false);
+      expect(result.files_written).toBe(0);
       expect(result.error).toBe("No recognized full-file blocks");
     });
   });

@@ -28,7 +28,7 @@ AVAILABLE ACTIONS AND FORMATS:
 {
   "action": "search_repo", 
   "tool_input": {
-    "query": "function getUserData"
+    "query": "[search query]"
   },
   "rationale": "Looking for user data functions"
 }
