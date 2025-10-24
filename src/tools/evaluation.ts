@@ -1,4 +1,15 @@
 import { promises as fs } from "node:fs";
+import { makeAICall } from "../ai/api-calls";
+import { getAIClient } from "../ai/ai-client";
+import { htmlEvaluationPrompt } from "../ai/prompts/html-evaluation";
+import { cssEvaluationPrompt } from "../ai/prompts/css-evaluation";
+import { javascriptEvaluationPrompt } from "../ai/prompts/javascript-evaluation";
+import { generalEvaluationPrompt } from "../ai/prompts/general-evaluation";
+import {
+  FileEvaluationSchema,
+  type FileEvaluation,
+} from "../ai/prompts/evaluation-schema";
+import { LogConfig, log } from "../utils/logging";
 
 export async function evaluate_work(
   files: string[],
@@ -56,7 +67,7 @@ export async function evaluate_work(
   // Analyze the files based on criteria
   let analysis;
   try {
-    analysis = analyzeFiles(file_contents, criteria || "general");
+    analysis = await analyzeFiles(file_contents, criteria || "general");
   } catch (err) {
     console.log(`[DEBUG] Analysis failed:`, err);
     // Return a default analysis if the analysis function fails
@@ -81,10 +92,10 @@ export async function evaluate_work(
   };
 }
 
-function analyzeFiles(
+async function analyzeFiles(
   file_contents: Record<string, string>,
   criteria: string
-): {
+): Promise<{
   overall_score: number;
   strengths: string[];
   improvements: string[];
@@ -94,7 +105,7 @@ function analyzeFiles(
     suggestion: string;
     priority: "low" | "medium" | "high";
   }>;
-} {
+}> {
   const strengths: string[] = [];
   const improvements: string[] = [];
   const specific_suggestions: Array<{
@@ -107,48 +118,99 @@ function analyzeFiles(
   let total_score = 0;
   let file_count = 0;
 
+  // Create a default log config for LLM calls
+  const logConfig: LogConfig = {
+    enabled: true,
+    logSteps: true,
+    logToolCalls: false,
+    logToolResults: false,
+    logDecisions: false,
+    logTranscript: false,
+    logErrors: true,
+    logPromptContext: false,
+  };
+
   for (const [file, content] of Object.entries(file_contents)) {
     file_count++;
-    const lines = content.split("\n");
-    let file_score = 0;
 
-    // Analyze based on file type and criteria
-    if (file.endsWith(".html")) {
-      const htmlAnalysis = analyzeHTML(content, lines);
-      file_score += htmlAnalysis.score;
-      strengths.push(...htmlAnalysis.strengths);
-      improvements.push(...htmlAnalysis.improvements);
-      specific_suggestions.push(
-        ...htmlAnalysis.suggestions.map((s) => ({ ...s, file }))
+    try {
+      // Get the appropriate prompt based on file type
+      let prompt: string;
+      if (file.endsWith(".html")) {
+        prompt = htmlEvaluationPrompt;
+      } else if (file.endsWith(".css")) {
+        prompt = cssEvaluationPrompt;
+      } else if (file.endsWith(".ts") || file.endsWith(".js")) {
+        prompt = javascriptEvaluationPrompt;
+      } else {
+        prompt = generalEvaluationPrompt;
+      }
+
+      // Prepare the evaluation request
+      const messages = [
+        {
+          role: "system",
+          content: prompt,
+        },
+        {
+          role: "user",
+          content: `Please evaluate the following ${
+            file.split(".").pop()?.toUpperCase() || "file"
+          } code:\n\nFile: ${file}\n\n${content}`,
+        },
+      ];
+
+      // Make LLM call for evaluation
+      const response = await makeAICall(
+        messages,
+        FileEvaluationSchema,
+        logConfig,
+        {
+          maxRetries: 2,
+          timeoutMs: 30000,
+        }
       );
-    } else if (file.endsWith(".css")) {
-      const cssAnalysis = analyzeCSS(content, lines);
-      file_score += cssAnalysis.score;
-      strengths.push(...cssAnalysis.strengths);
-      improvements.push(...cssAnalysis.improvements);
+
+      if (response.choices && response.choices[0]?.message?.content) {
+        const evaluation: FileEvaluation = JSON.parse(
+          response.choices[0].message.content
+        );
+
+        // Aggregate results
+        total_score += evaluation.overall_score;
+        strengths.push(...evaluation.strengths);
+        improvements.push(...evaluation.improvements);
+        specific_suggestions.push(
+          ...evaluation.specific_suggestions.map((s: any) => ({
+            ...s,
+            file,
+            category: s.category,
+          }))
+        );
+      } else {
+        // Fallback to basic analysis if LLM call fails
+        console.log(
+          `[DEBUG] LLM evaluation failed for ${file}, using fallback analysis`
+        );
+        const fallbackAnalysis = getFallbackAnalysis(file, content);
+        total_score += fallbackAnalysis.score;
+        strengths.push(...fallbackAnalysis.strengths);
+        improvements.push(...fallbackAnalysis.improvements);
+        specific_suggestions.push(
+          ...fallbackAnalysis.suggestions.map((s) => ({ ...s, file }))
+        );
+      }
+    } catch (error) {
+      console.log(`[DEBUG] Error evaluating ${file}:`, error);
+      // Fallback to basic analysis
+      const fallbackAnalysis = getFallbackAnalysis(file, content);
+      total_score += fallbackAnalysis.score;
+      strengths.push(...fallbackAnalysis.strengths);
+      improvements.push(...fallbackAnalysis.improvements);
       specific_suggestions.push(
-        ...cssAnalysis.suggestions.map((s) => ({ ...s, file }))
-      );
-    } else if (file.endsWith(".ts") || file.endsWith(".js")) {
-      const jsAnalysis = analyzeJavaScript(content, lines);
-      file_score += jsAnalysis.score;
-      strengths.push(...jsAnalysis.strengths);
-      improvements.push(...jsAnalysis.improvements);
-      specific_suggestions.push(
-        ...jsAnalysis.suggestions.map((s) => ({ ...s, file }))
-      );
-    } else {
-      // General file analysis
-      const generalAnalysis = analyzeGeneral(content, lines);
-      file_score += generalAnalysis.score;
-      strengths.push(...generalAnalysis.strengths);
-      improvements.push(...generalAnalysis.improvements);
-      specific_suggestions.push(
-        ...generalAnalysis.suggestions.map((s) => ({ ...s, file }))
+        ...fallbackAnalysis.suggestions.map((s) => ({ ...s, file }))
       );
     }
-
-    total_score += file_score;
   }
 
   const overall_score =
@@ -417,4 +479,32 @@ function analyzeGeneral(content: string, lines: string[]) {
   }
 
   return { score: Math.min(score, 100), strengths, improvements, suggestions };
+}
+
+// Fallback analysis function for when LLM evaluation fails
+function getFallbackAnalysis(
+  file: string,
+  content: string
+): {
+  score: number;
+  strengths: string[];
+  improvements: string[];
+  suggestions: Array<{
+    line?: number;
+    suggestion: string;
+    priority: "low" | "medium" | "high";
+  }>;
+} {
+  const lines = content.split("\n");
+
+  // Use the existing analysis functions as fallback
+  if (file.endsWith(".html")) {
+    return analyzeHTML(content, lines);
+  } else if (file.endsWith(".css")) {
+    return analyzeCSS(content, lines);
+  } else if (file.endsWith(".ts") || file.endsWith(".js")) {
+    return analyzeJavaScript(content, lines);
+  } else {
+    return analyzeGeneral(content, lines);
+  }
 }

@@ -180,6 +180,7 @@ export async function makeAICall(
         })),
         system: systemMessage?.content,
         maxOutputTokens: 4000,
+        temperature: aiClient.getTemperature(),
       };
 
       log(
@@ -192,6 +193,7 @@ export async function makeAICall(
           hasSystemPrompt: !!generateObjectParams.system,
           systemPromptLength: generateObjectParams.system?.length || 0,
           maxOutputTokens: generateObjectParams.maxOutputTokens,
+          temperature: generateObjectParams.temperature,
           schemaInfo: getSchemaInfo(schema),
         }
       );

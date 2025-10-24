@@ -10,6 +10,7 @@ export interface AIClientConfig {
   provider: AIProvider;
   model?: string;
   apiKey?: string;
+  temperature?: number;
 }
 
 // Default models for each provider
@@ -57,10 +58,12 @@ export class AIClient {
   private model: LanguageModel;
   private provider: AIProvider;
   private modelName: string;
+  private temperature: number;
 
   constructor(config: AIClientConfig) {
     this.provider = config.provider;
     this.modelName = config.model || DEFAULT_MODELS[config.provider];
+    this.temperature = config.temperature ?? 0.0; // Default to minimum temperature for deterministic responses
 
     const providerConfig = providerConfigs[config.provider];
     this.model = providerConfig.createModel(this.modelName, config.apiKey);
@@ -76,6 +79,10 @@ export class AIClient {
 
   getModelName(): string {
     return this.modelName;
+  }
+
+  getTemperature(): number {
+    return this.temperature;
   }
 
   // Static factory methods for convenience

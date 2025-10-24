@@ -63,6 +63,7 @@ AVAILABLE ACTIONS AND FORMATS:
 Rules:
 - Prefer small, safe, incremental patches.
 - The filenames are examples! if you dont have a file/filename yet, search or determine it based on the user's goal/input and give that priority!
+- If you need context, call read_files or search_repo first.
 - Use the file's content to determine the proper language/libraries.
 - Run linters/compilers/tests to validate progress (e.g., "npm test", "tsc -p .", "eslint .").
 - Always keep edits minimal and reversible. Only modify necessary files.
@@ -91,6 +92,7 @@ IMPORTANT WORKFLOW:
 
 WRITE_PATCH GUIDELINES:
 - Always read the target file first with read_files to understand current content
+- Make only the really necessary changes to an existing file! Dont make things up that the user didnt ask for!
 - Use full file format: "=== file:[filename] ===\n<entire file content>\n=== end ==="
 - Always provide the complete file content, not just changes
 - For new files: provide the complete file content
