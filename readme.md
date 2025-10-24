@@ -268,4 +268,8 @@ npm install
 npm start
 ```
 
+## What did I learn?
 
+- examples in a prompt are helpful, but can also lead to confusion and hallucinations if not used carefully. Especially with smaller models. It happened that code was generated based on examples, but was not actually what the user wanted. Same with filenames in the examples.
+
+- Ollama is a great way to run local models and helpful for testing and development.
