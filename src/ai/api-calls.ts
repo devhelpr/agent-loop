@@ -473,112 +473,12 @@ function repairMalformedJSON(text: string): string {
 // Backward compatibility function
 export async function makeOpenAICall(
   messages: Array<{ role: string; content: string }>,
-  schema: any,
+  schema: z.ZodSchema,
   logConfig: LogConfig,
   options: ApiCallOptions = {}
 ) {
-  // Convert JSON schema to Zod schema if needed
-  let zodSchema: z.ZodSchema;
-
-  if (schema && typeof schema === "object") {
-    // Handle nested schema structure (like DecisionSchema)
-    const actualSchema = schema.schema || schema;
-
-    if (actualSchema && actualSchema.type === "object") {
-      // Convert JSON schema to Zod schema
-      zodSchema = convertJsonSchemaToZod(actualSchema);
-    } else if (schema && typeof schema.parse === "function") {
-      // Already a Zod schema
-      zodSchema = schema;
-    } else {
-      // Fallback to any object
-      zodSchema = z.any();
-    }
-  } else if (schema && typeof schema.parse === "function") {
-    // Already a Zod schema
-    zodSchema = schema;
-  } else {
-    // Fallback to any object
-    zodSchema = z.any();
-  }
-
-  return makeAICall(messages, zodSchema, logConfig, {
+  return makeAICall(messages, schema, logConfig, {
     ...options,
     provider: options.provider || "openai",
   });
-}
-
-// Helper function to convert JSON schema to Zod schema
-function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
-  if (!jsonSchema || typeof jsonSchema !== "object") {
-    return z.any();
-  }
-
-  if (jsonSchema.type === "object" && jsonSchema.properties) {
-    const shape: Record<string, z.ZodSchema> = {};
-
-    for (const [key, prop] of Object.entries(jsonSchema.properties)) {
-      const propSchema = prop as any;
-      let zodProp: z.ZodSchema;
-
-      switch (propSchema.type) {
-        case "string":
-          if (propSchema.enum) {
-            zodProp = z.enum(propSchema.enum);
-          } else {
-            zodProp = z.string();
-          }
-          break;
-        case "number":
-          zodProp = z.number();
-          break;
-        case "boolean":
-          zodProp = z.boolean();
-          break;
-        case "array":
-          if (propSchema.items) {
-            const itemSchema = convertJsonSchemaToZod(propSchema.items);
-            zodProp = z.array(itemSchema);
-          } else {
-            zodProp = z.array(z.any());
-          }
-          break;
-        case "object":
-          zodProp = convertJsonSchemaToZod(propSchema);
-          break;
-        default:
-          zodProp = z.any();
-      }
-
-      // Make tool_input optional to be more permissive with schema validation
-      // The actual validation is handled by validateDecision function in agent.ts
-      if (key === "tool_input") {
-        shape[key] = zodProp.optional();
-      } else if (jsonSchema.required && jsonSchema.required.includes(key)) {
-        shape[key] = zodProp;
-      } else {
-        shape[key] = zodProp.optional();
-      }
-    }
-
-    return z
-      .object(shape)
-      .describe(
-        `JSON Schema converted to Zod: ${jsonSchema.title || "Object"}`
-      );
-  }
-
-  // Handle other types
-  switch (jsonSchema.type) {
-    case "string":
-      return z.string();
-    case "number":
-      return z.number();
-    case "boolean":
-      return z.boolean();
-    case "array":
-      return z.array(z.any());
-    default:
-      return z.any();
-  }
 }

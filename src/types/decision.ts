@@ -1,73 +1,62 @@
-export const DecisionSchema = {
-  name: "AgentDecision",
-  strict: false,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      action: {
-        type: "string",
-        enum: [
-          "read_files",
-          "search_repo",
-          "write_patch",
-          "run_cmd",
-          "evaluate_work",
-          "final_answer",
-        ],
-        description: "The action to take",
-      },
-      tool_input: {
-        type: "object",
-        description: "Input parameters for the selected tool",
-        additionalProperties: false,
-        properties: {
-          paths: {
-            type: "array",
-            items: { type: "string" },
-            description: "File paths for read_files action",
-          },
-          query: {
-            type: "string",
-            description: "Search query for search_repo action",
-          },
-          patch: {
-            type: "string",
-            description: "Patch content for write_patch action",
-          },
-          cmd: {
-            type: "string",
-            description: "Command to run for run_cmd action",
-          },
-          args: {
-            type: "array",
-            items: { type: "string" },
-            description: "Command arguments for run_cmd action",
-          },
-          timeoutMs: {
-            type: "number",
-            description: "Timeout in milliseconds for run_cmd action",
-          },
-          files: {
-            type: "array",
-            items: { type: "string" },
-            description: "Files to evaluate for evaluate_work action",
-          },
-          criteria: {
-            type: "string",
-            description:
-              "Specific criteria to evaluate against (e.g., 'styling', 'functionality', 'performance')",
-          },
-        },
-      },
-      rationale: {
-        type: "string",
-        description: "Brief explanation of why this action was chosen",
-      },
-    },
-    required: ["action"],
-  },
-} as const;
+import { z } from "zod";
+
+export const DecisionSchema = z
+  .object({
+    action: z
+      .enum([
+        "read_files",
+        "search_repo",
+        "write_patch",
+        "run_cmd",
+        "evaluate_work",
+        "final_answer",
+      ])
+      .describe("The action to take"),
+    tool_input: z
+      .object({
+        paths: z
+          .array(z.string())
+          .optional()
+          .describe("File paths for read_files action"),
+        query: z
+          .string()
+          .optional()
+          .describe("Search query for search_repo action"),
+        patch: z
+          .string()
+          .optional()
+          .describe("Patch content for write_patch action"),
+        cmd: z
+          .string()
+          .optional()
+          .describe("Command to run for run_cmd action"),
+        args: z
+          .array(z.string())
+          .optional()
+          .describe("Command arguments for run_cmd action"),
+        timeoutMs: z
+          .number()
+          .optional()
+          .describe("Timeout in milliseconds for run_cmd action"),
+        files: z
+          .array(z.string())
+          .optional()
+          .describe("Files to evaluate for evaluate_work action"),
+        criteria: z
+          .string()
+          .optional()
+          .describe(
+            "Specific criteria to evaluate against (e.g., 'styling', 'functionality', 'performance')"
+          ),
+      })
+      .optional()
+      .describe("Input parameters for the selected tool"),
+    rationale: z
+      .string()
+      .optional()
+      .describe("Brief explanation of why this action was chosen"),
+  })
+  .describe("AgentDecision");
 
 export type Decision =
   | {

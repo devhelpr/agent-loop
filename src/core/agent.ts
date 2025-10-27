@@ -1,5 +1,6 @@
 import { LogConfig, log, logError } from "../utils/logging";
 import { DecisionSchema, Decision } from "../types/decision";
+import { z } from "zod";
 import {
   handleReadFiles,
   handleSearchRepo,
@@ -247,14 +248,11 @@ When ready to speak to the user, choose final_answer.
 
         final = await makeOpenAICall(
           summaryMessages,
-          {
-            name: "Summary",
-            strict: false,
-            schema: {
-              type: "object",
-              properties: { summary: { type: "string" } },
-            },
-          },
+          z
+            .object({
+              summary: z.string(),
+            })
+            .describe("Summary"),
           logConfig,
           {
             maxRetries: 2,
