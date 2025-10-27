@@ -9,7 +9,7 @@ import {
   handleEvaluateWork,
 } from "../handlers";
 import {
-  makeOpenAICall,
+  makeAICallWithSchema,
   getTokenStats,
   resetTokenStats,
   displayTokenSummary,
@@ -115,10 +115,10 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    let decisionResp: Awaited<ReturnType<typeof makeOpenAICall>>;
+    let decisionResp: Awaited<ReturnType<typeof makeAICallWithSchema>>;
 
     try {
-      decisionResp = await makeOpenAICall(
+      decisionResp = await makeAICallWithSchema(
         transcript,
         DecisionSchema,
         logConfig,
@@ -246,7 +246,7 @@ When ready to speak to the user, choose final_answer.
           },
         ];
 
-        final = await makeOpenAICall(
+        final = await makeAICallWithSchema(
           summaryMessages,
           z
             .object({

@@ -470,8 +470,8 @@ function repairMalformedJSON(text: string): string {
   }
 }
 
-// Backward compatibility function
-export async function makeOpenAICall(
+// Generic AI call function with schema validation
+export async function makeAICallWithSchema(
   messages: Array<{ role: string; content: string }>,
   schema: z.ZodSchema,
   logConfig: LogConfig,
