@@ -1,5 +1,6 @@
 import { LogConfig, log, logError } from "../utils/logging";
 import { DecisionSchema, Decision } from "../types/decision";
+import { z } from "zod";
 import {
   handleReadFiles,
   handleSearchRepo,
@@ -8,7 +9,7 @@ import {
   handleEvaluateWork,
 } from "../handlers";
 import {
-  makeOpenAICall,
+  makeAICallWithSchema,
   getTokenStats,
   resetTokenStats,
   displayTokenSummary,
@@ -114,10 +115,10 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    let decisionResp: Awaited<ReturnType<typeof makeOpenAICall>>;
+    let decisionResp: Awaited<ReturnType<typeof makeAICallWithSchema>>;
 
     try {
-      decisionResp = await makeOpenAICall(
+      decisionResp = await makeAICallWithSchema(
         transcript,
         DecisionSchema,
         logConfig,
@@ -245,16 +246,13 @@ When ready to speak to the user, choose final_answer.
           },
         ];
 
-        final = await makeOpenAICall(
+        final = await makeAICallWithSchema(
           summaryMessages,
-          {
-            name: "Summary",
-            strict: false,
-            schema: {
-              type: "object",
-              properties: { summary: { type: "string" } },
-            },
-          },
+          z
+            .object({
+              summary: z.string(),
+            })
+            .describe("Summary"),
           logConfig,
           {
             maxRetries: 2,
