@@ -1,6 +1,7 @@
 import { Decision } from "../types/decision";
 import { LogConfig, log } from "../utils/logging";
 import { read_files, write_patch } from "../tools";
+import { validatorRegistry } from "../tools/validation";
 import { MessageArray } from "../types/handlers";
 
 export async function handleReadFiles(
@@ -82,6 +83,100 @@ export async function handleWritePatch(
 
   const out = await write_patch(patchContent);
   log(logConfig, "tool-result", "write_patch completed", out);
+
+  // Validate written files if they are JS/TS files
+  if (out.success && out.files_written > 0) {
+    const writtenFiles = Array.isArray(out.files_written)
+      ? out.files_written
+      : [];
+    for (const filePath of writtenFiles) {
+      if (validatorRegistry.getValidator(filePath)) {
+        try {
+          // Read the file content for validation
+          const fileContent = await read_files([filePath]);
+          const content = fileContent[filePath];
+
+          if (content) {
+            const validationResult = await validatorRegistry.validateFile(
+              filePath,
+              content
+            );
+
+            if (
+              !validationResult.success &&
+              validationResult.errors.length > 0
+            ) {
+              log(logConfig, "validation", "File validation found errors", {
+                file: filePath,
+                errorCount: validationResult.errors.length,
+                errors: validationResult.errors.map(
+                  (e) => `${e.line}:${e.column} ${e.message}`
+                ),
+              });
+
+              // Add validation results to transcript
+              transcript.push({
+                role: "assistant",
+                content: `validation_errors:${JSON.stringify({
+                  file: filePath,
+                  errors: validationResult.errors,
+                  warnings: validationResult.warnings,
+                })}`,
+              });
+
+              // Add formatted validation summary
+              const validationSummary = `
+VALIDATION ERRORS FOUND IN ${filePath}:
+${validationResult.errors
+  .map((e) => `- Line ${e.line}:${e.column} - ${e.message} (${e.code})`)
+  .join("\n")}
+
+${
+  validationResult.warnings.length > 0
+    ? `
+WARNINGS:
+${validationResult.warnings
+  .map((w) => `- Line ${w.line}:${w.column} - ${w.message} (${w.code})`)
+  .join("\n")}`
+    : ""
+}
+
+IMPORTANT: These errors need to be fixed. Consider using write_patch to correct the issues.
+`;
+
+              transcript.push({
+                role: "assistant",
+                content: `validation_summary:${validationSummary}`,
+              });
+            } else if (validationResult.warnings.length > 0) {
+              log(logConfig, "validation", "File validation found warnings", {
+                file: filePath,
+                warningCount: validationResult.warnings.length,
+              });
+
+              transcript.push({
+                role: "assistant",
+                content: `validation_warnings:${JSON.stringify({
+                  file: filePath,
+                  warnings: validationResult.warnings,
+                })}`,
+              });
+            } else {
+              log(logConfig, "validation", "File validation passed", {
+                file: filePath,
+              });
+            }
+          }
+        } catch (validationError) {
+          log(logConfig, "validation", "File validation failed", {
+            file: filePath,
+            error: String(validationError),
+          });
+        }
+      }
+    }
+  }
+
   const newWrites = writes + 1;
   transcript.push({
     role: "assistant",

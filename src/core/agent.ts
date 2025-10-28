@@ -7,6 +7,8 @@ import {
   handleWritePatch,
   handleRunCmd,
   handleEvaluateWork,
+  handleCreatePlan,
+  handleAnalyzeProject,
 } from "../handlers";
 import {
   makeAICallWithSchema,
@@ -30,6 +32,8 @@ function validateDecision(parsed: any): Decision | null {
     "write_patch",
     "run_cmd",
     "evaluate_work",
+    "create_plan",
+    "analyze_project",
     "final_answer",
   ];
 
@@ -105,6 +109,70 @@ When ready to speak to the user, choose final_answer.
     { role: "system", content: system },
     { role: "user", content: userGoal },
   ];
+
+  // Planning phase: Analyze project and create plan for complex tasks
+  log(logConfig, "step", "=== Planning Phase ===");
+
+  // Always analyze the project first
+  const analyzeDecision: Decision = {
+    action: "analyze_project",
+    tool_input: { scan_directories: ["."] },
+    rationale: "Analyzing project structure before starting work",
+  };
+
+  await handleAnalyzeProject(analyzeDecision, transcript, logConfig);
+
+  // For complex tasks, create a structured plan
+  const isComplexTask =
+    userGoal.length > 100 ||
+    userGoal.toLowerCase().includes("implement") ||
+    userGoal.toLowerCase().includes("create") ||
+    userGoal.toLowerCase().includes("build") ||
+    (userGoal.toLowerCase().includes("add") &&
+      userGoal.toLowerCase().includes("feature"));
+
+  if (isComplexTask) {
+    log(logConfig, "step", "Complex task detected, creating execution plan");
+
+    const planDecision: Decision = {
+      action: "create_plan",
+      tool_input: {
+        plan_steps: [
+          {
+            step: "Analyze existing codebase and understand requirements",
+            required: true,
+            dependencies: [],
+          },
+          {
+            step: "Implement core functionality as requested",
+            required: true,
+            dependencies: [
+              "Analyze existing codebase and understand requirements",
+            ],
+          },
+          {
+            step: "Test and validate the implementation",
+            required: true,
+            dependencies: ["Implement core functionality as requested"],
+          },
+          {
+            step: "Add error handling and edge cases",
+            required: false,
+            dependencies: ["Implement core functionality as requested"],
+          },
+          {
+            step: "Optimize and refactor if needed",
+            required: false,
+            dependencies: ["Test and validate the implementation"],
+          },
+        ],
+        project_context: "Project analysis will provide context",
+      },
+      rationale: "Creating structured plan for complex task execution",
+    };
+
+    await handleCreatePlan(planDecision, transcript, logConfig);
+  }
 
   for (let step = 1; step <= maxSteps; step++) {
     log(logConfig, "step", `=== Step ${step}/${maxSteps} ===`, {
@@ -329,6 +397,16 @@ When ready to speak to the user, choose final_answer.
 
     if (decision.action === "evaluate_work") {
       await handleEvaluateWork(decision, transcript, logConfig);
+      continue;
+    }
+
+    if (decision.action === "create_plan") {
+      await handleCreatePlan(decision, transcript, logConfig);
+      continue;
+    }
+
+    if (decision.action === "analyze_project") {
+      await handleAnalyzeProject(decision, transcript, logConfig);
       continue;
     }
 

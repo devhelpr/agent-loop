@@ -9,6 +9,8 @@ export const DecisionSchema = z
         "write_patch",
         "run_cmd",
         "evaluate_work",
+        "create_plan",
+        "analyze_project",
         "final_answer",
       ])
       .describe("The action to take"),
@@ -48,6 +50,27 @@ export const DecisionSchema = z
           .describe(
             "Specific criteria to evaluate against (e.g., 'styling', 'functionality', 'performance')"
           ),
+        plan_steps: z
+          .array(
+            z.object({
+              step: z.string().describe("Description of the step"),
+              required: z.boolean().describe("Whether this step is required"),
+              dependencies: z
+                .array(z.string())
+                .optional()
+                .describe("Steps that must be completed before this one"),
+            })
+          )
+          .optional()
+          .describe("Structured plan steps for create_plan action"),
+        project_context: z
+          .string()
+          .optional()
+          .describe("Project context information for create_plan action"),
+        scan_directories: z
+          .array(z.string())
+          .optional()
+          .describe("Directories to scan for analyze_project action"),
       })
       .optional()
       .describe("Input parameters for the selected tool"),
@@ -74,6 +97,23 @@ export type Decision =
   | {
       action: "evaluate_work";
       tool_input: { files: string[]; criteria?: string };
+      rationale?: string;
+    }
+  | {
+      action: "create_plan";
+      tool_input: {
+        plan_steps: Array<{
+          step: string;
+          required: boolean;
+          dependencies?: string[];
+        }>;
+        project_context?: string;
+      };
+      rationale?: string;
+    }
+  | {
+      action: "analyze_project";
+      tool_input: { scan_directories?: string[] };
       rationale?: string;
     }
   | { action: "final_answer"; rationale?: string };
