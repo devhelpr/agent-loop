@@ -2,6 +2,10 @@ import { LogConfig, log } from "../utils/logging";
 import { generateObject, generateText, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { AIClient, AIProvider } from "./ai-client";
+import { planningPrompt } from "./prompts/planning";
+import { projectAnalysisPrompt } from "./prompts/project-analysis";
+import { PlanStep, ExecutionPlan } from "../tools/planning";
+import { ProjectAnalysis } from "../tools/project-analysis";
 
 // Global token tracking
 let totalInputTokens = 0;
@@ -481,4 +485,192 @@ export async function makeAICallWithSchema(
     ...options,
     provider: options.provider || "openai",
   });
+}
+
+// Planning API call function
+export async function createPlanWithAI(
+  userGoal: string,
+  projectContext?: string,
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ExecutionPlan> {
+  const planStepSchema = z.object({
+    step: z.string().describe("Clear description of the step to be executed"),
+    required: z
+      .boolean()
+      .describe("Whether this step is required to achieve the user's goal"),
+    dependencies: z
+      .array(z.string())
+      .optional()
+      .describe("Array of step IDs that must be completed before this step"),
+  });
+
+  const planningSchema = z.object({
+    steps: z
+      .array(planStepSchema)
+      .describe("Array of plan steps in execution order"),
+    projectContext: z
+      .string()
+      .optional()
+      .describe("Summary of project context and technology stack"),
+    userGoal: z.string().describe("The user's goal that this plan addresses"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: planningPrompt,
+    },
+    {
+      role: "user",
+      content: `Create a structured execution plan for the following goal:
+
+**User Goal:** ${userGoal}
+
+${projectContext ? `**Project Context:** ${projectContext}` : ""}
+
+Please analyze this goal and create a detailed, executable plan with clear steps, dependencies, and priorities. Focus on breaking down complex tasks into manageable, sequential steps.`,
+    },
+  ];
+
+  log(logConfig, "planning", "Creating AI-generated execution plan", {
+    userGoal,
+    hasProjectContext: !!projectContext,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    planningSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI planning call");
+  }
+
+  const planData = JSON.parse(response.choices[0].message.content);
+
+  // Convert to ExecutionPlan format
+  const executionPlan: ExecutionPlan = {
+    steps: planData.steps,
+    projectContext: planData.projectContext || projectContext,
+    createdAt: new Date(),
+    userGoal: planData.userGoal || userGoal,
+  };
+
+  log(logConfig, "planning", "AI-generated plan created successfully", {
+    stepCount: executionPlan.steps.length,
+    requiredSteps: executionPlan.steps.filter((s) => s.required).length,
+    optionalSteps: executionPlan.steps.filter((s) => !s.required).length,
+  });
+
+  return executionPlan;
+}
+
+// Project Analysis API call function
+export async function analyzeProjectWithAI(
+  scanDirectories: string[],
+  projectFiles: string[],
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ProjectAnalysis> {
+  const projectAnalysisSchema = z.object({
+    language: z.string().describe("Primary programming language detected"),
+    projectType: z
+      .enum(["node", "browser", "library", "unknown"])
+      .describe("Type of project"),
+    buildTools: z
+      .array(z.string())
+      .describe("Build tools and bundlers detected"),
+    testFramework: z
+      .string()
+      .optional()
+      .describe("Testing framework if detected"),
+    packageManager: z.string().optional().describe("Package manager used"),
+    hasTypeScript: z.boolean().describe("Whether TypeScript is used"),
+    hasReact: z.boolean().describe("Whether React is used"),
+    hasVue: z.boolean().describe("Whether Vue is used"),
+    hasAngular: z.boolean().describe("Whether Angular is used"),
+    mainFiles: z.array(z.string()).describe("Key source files found"),
+    configFiles: z.array(z.string()).describe("Configuration files found"),
+    dependencies: z
+      .record(z.string(), z.string())
+      .describe("Production dependencies"),
+    devDependencies: z
+      .record(z.string(), z.string())
+      .describe("Development dependencies"),
+    architecture: z
+      .string()
+      .optional()
+      .describe("Architectural patterns detected"),
+    recommendations: z
+      .array(z.string())
+      .optional()
+      .describe("Recommendations for improvements"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: projectAnalysisPrompt,
+    },
+    {
+      role: "user",
+      content: `Analyze the following project structure:
+
+**Scan Directories:** ${scanDirectories.join(", ")}
+
+**Project Files Found:** ${projectFiles.join(", ")}
+
+Please provide a comprehensive analysis of this project's technology stack, structure, dependencies, and architecture. Focus on identifying key technologies, patterns, and providing actionable insights.`,
+    },
+  ];
+
+  log(logConfig, "project-analysis", "Performing AI-powered project analysis", {
+    scanDirectories,
+    fileCount: projectFiles.length,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    projectAnalysisSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI project analysis call");
+  }
+
+  const analysisData = JSON.parse(response.choices[0].message.content);
+
+  // Convert to ProjectAnalysis format
+  const projectAnalysis: ProjectAnalysis = {
+    language: analysisData.language,
+    projectType: analysisData.projectType,
+    buildTools: analysisData.buildTools,
+    testFramework: analysisData.testFramework,
+    packageManager: analysisData.packageManager,
+    hasTypeScript: analysisData.hasTypeScript,
+    hasReact: analysisData.hasReact,
+    hasVue: analysisData.hasVue,
+    hasAngular: analysisData.hasAngular,
+    mainFiles: analysisData.mainFiles,
+    configFiles: analysisData.configFiles,
+    dependencies: analysisData.dependencies,
+    devDependencies: analysisData.devDependencies,
+  };
+
+  log(logConfig, "project-analysis", "AI-powered project analysis completed", {
+    language: projectAnalysis.language,
+    projectType: projectAnalysis.projectType,
+    buildToolsCount: projectAnalysis.buildTools.length,
+    hasTypeScript: projectAnalysis.hasTypeScript,
+    hasReact: projectAnalysis.hasReact,
+  });
+
+  return projectAnalysis;
 }

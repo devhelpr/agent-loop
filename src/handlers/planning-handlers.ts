@@ -1,6 +1,7 @@
 import { Decision } from "../types/decision";
 import { LogConfig, log } from "../utils/logging";
 import { create_plan, analyze_project } from "../tools";
+import { createPlanWithAI, analyzeProjectWithAI } from "../ai/api-calls";
 import { MessageArray } from "../types/handlers";
 
 export async function handleCreatePlan(
@@ -20,11 +21,30 @@ export async function handleCreatePlan(
     // Extract user goal from transcript
     const userGoal = transcript.find((msg) => msg.role === "user")?.content;
 
-    out = await create_plan(
-      decision.tool_input.plan_steps || [],
-      decision.tool_input.project_context,
-      userGoal
-    );
+    // Use AI-powered planning if we have a user goal, otherwise fall back to basic planning
+    if (userGoal && userGoal.trim()) {
+      log(logConfig, "planning", "Using AI-powered planning", {
+        userGoal:
+          userGoal.substring(0, 100) + (userGoal.length > 100 ? "..." : ""),
+        hasProjectContext: !!decision.tool_input.project_context,
+      });
+
+      out = await createPlanWithAI(
+        userGoal,
+        decision.tool_input.project_context,
+        logConfig
+      );
+    } else {
+      log(logConfig, "planning", "Using basic planning (no user goal found)", {
+        planSteps: decision.tool_input.plan_steps,
+      });
+
+      out = await create_plan(
+        decision.tool_input.plan_steps || [],
+        decision.tool_input.project_context,
+        userGoal
+      );
+    }
   } catch (error) {
     log(logConfig, "tool-error", "create_plan failed", {
       error: String(error),
@@ -108,27 +128,56 @@ export async function handleAnalyzeProject(
 
   let out;
   try {
-    out = await analyze_project(decision.tool_input.scan_directories);
+    const scanDirectories = decision.tool_input.scan_directories || ["."];
+
+    // First run the basic project analysis to get file information
+    const basicAnalysis = await analyze_project(scanDirectories);
+
+    log(logConfig, "project-analysis", "Using AI-powered project analysis", {
+      scanDirectories,
+      fileCount:
+        basicAnalysis.mainFiles.length + basicAnalysis.configFiles.length,
+    });
+
+    // Use AI-powered analysis with the file information from basic analysis
+    out = await analyzeProjectWithAI(
+      scanDirectories,
+      [...basicAnalysis.mainFiles, ...basicAnalysis.configFiles],
+      logConfig
+    );
   } catch (error) {
     log(logConfig, "tool-error", "analyze_project failed", {
       error: String(error),
       scanDirectories: decision.tool_input.scan_directories,
     });
 
-    // Return a default analysis when analysis fails
-    out = {
-      language: "unknown",
-      projectType: "unknown",
-      buildTools: [],
-      hasTypeScript: false,
-      hasReact: false,
-      hasVue: false,
-      hasAngular: false,
-      mainFiles: [],
-      configFiles: [],
-      dependencies: {},
-      devDependencies: {},
-    };
+    // Fall back to basic analysis if AI analysis fails
+    try {
+      log(logConfig, "project-analysis", "Falling back to basic analysis", {
+        scanDirectories: decision.tool_input.scan_directories,
+      });
+
+      out = await analyze_project(decision.tool_input.scan_directories);
+    } catch (fallbackError) {
+      log(logConfig, "tool-error", "Basic analyze_project also failed", {
+        error: String(fallbackError),
+      });
+
+      // Return a default analysis when both fail
+      out = {
+        language: "unknown",
+        projectType: "unknown",
+        buildTools: [],
+        hasTypeScript: false,
+        hasReact: false,
+        hasVue: false,
+        hasAngular: false,
+        mainFiles: [],
+        configFiles: [],
+        dependencies: {},
+        devDependencies: {},
+      };
+    }
   }
 
   log(logConfig, "tool-result", "analyze_project completed", {

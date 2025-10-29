@@ -12,7 +12,6 @@ list of actions:
 - write_patch
 - evaluate_work
 - create_plan
-- analyze_project
 - final_answer
 
 AVAILABLE ACTIONS AND FORMATS:
@@ -56,53 +55,11 @@ AVAILABLE ACTIONS AND FORMATS:
   "rationale": "Evaluating the styling and structure"
 }
 
-5. create_plan - Create structured execution plan:
-{
-  "action": "create_plan",
-  "tool_input": {
-    "plan_steps": [
-      {
-        "step": "Analyze existing code structure",
-        "required": true,
-        "dependencies": []
-      },
-      {
-        "step": "Implement core functionality",
-        "required": true,
-        "dependencies": ["Analyze existing code structure"]
-      },
-      {
-        "step": "Add error handling",
-        "required": false,
-        "dependencies": ["Implement core functionality"]
-      }
-    ],
-    "project_context": "TypeScript Node.js project with Express"
-  },
-  "rationale": "Creating structured plan for complex task"
-}
-
-6. analyze_project - Analyze project structure and technology stack:
-{
-  "action": "analyze_project",
-  "tool_input": {
-    "scan_directories": [".", "src", "lib"]
-  },
-  "rationale": "Understanding project structure before making changes"
-}
-
 7. final_answer - Complete the task:
 {
   "action": "final_answer",
   "rationale": "Task completed successfully"
 }
-
-PLANNING WORKFLOW:
-- For complex tasks, start with analyze_project to understand the codebase
-- Use create_plan to break down complex tasks into structured steps
-- Focus on REQUIRED steps first, OPTIONAL steps only if they align with user's goal
-- Reference project context when making technical decisions
-- Consider dependencies between plan steps
 
 Rules:
 - Prefer small, safe, incremental patches.
