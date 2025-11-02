@@ -3,11 +3,13 @@ import { LogConfig, log } from "../utils/logging";
 import { create_plan, analyze_project } from "../tools";
 import { createPlanWithAI, analyzeProjectWithAI } from "../ai/api-calls";
 import { MessageArray } from "../types/handlers";
+import { AIProvider } from "../ai/ai-client";
 
 export async function handleCreatePlan(
   decision: Decision,
   transcript: MessageArray,
-  logConfig: LogConfig
+  logConfig: LogConfig,
+  aiProvider?: AIProvider
 ) {
   if (decision.action !== "create_plan") return;
 
@@ -32,7 +34,8 @@ export async function handleCreatePlan(
       out = await createPlanWithAI(
         userGoal,
         decision.tool_input.project_context,
-        logConfig
+        logConfig,
+        { provider: aiProvider }
       );
     } else {
       log(logConfig, "planning", "Using basic planning (no user goal found)", {
@@ -118,7 +121,8 @@ IMPORTANT GUIDANCE:
 export async function handleAnalyzeProject(
   decision: Decision,
   transcript: MessageArray,
-  logConfig: LogConfig
+  logConfig: LogConfig,
+  aiProvider?: AIProvider
 ) {
   if (decision.action !== "analyze_project") return;
 
@@ -143,7 +147,8 @@ export async function handleAnalyzeProject(
     out = await analyzeProjectWithAI(
       scanDirectories,
       [...basicAnalysis.mainFiles, ...basicAnalysis.configFiles],
-      logConfig
+      logConfig,
+      { provider: aiProvider }
     );
   } catch (error) {
     log(logConfig, "tool-error", "analyze_project failed", {

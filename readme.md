@@ -144,6 +144,16 @@ flowchart TD
 
 Install globally to use from anywhere on your system:
 
+**Option 1: Using the install-global script (recommended)**
+
+```bash
+npm run install-global
+```
+
+This will build the project and install it globally in one step.
+
+**Option 2: Manual installation**
+
 ```bash
 npm install -g .
 ```
@@ -154,9 +164,7 @@ If you need extra permissions, then:
 chmod +x <path>/agent-loop/dist/src/cli.js
 ```
 
-Then you can run it with:
-
-Or use directly without installation:
+**Option 3: Use directly without installation**
 
 ```bash
 npx agent-loop

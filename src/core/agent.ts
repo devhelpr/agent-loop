@@ -121,7 +121,12 @@ When ready to speak to the user, choose final_answer.
     rationale: "Analyzing project structure before starting work",
   };
 
-  await handleAnalyzeProject(analyzeDecision, transcript, logConfig);
+  await handleAnalyzeProject(
+    analyzeDecision,
+    transcript,
+    logConfig,
+    opts?.aiProvider
+  );
 
   // For complex tasks, create a structured plan
   const isComplexTask =
@@ -172,7 +177,12 @@ When ready to speak to the user, choose final_answer.
       rationale: "Creating structured plan for complex task execution",
     };
 
-    await handleCreatePlan(planDecision, transcript, logConfig);
+    await handleCreatePlan(
+      planDecision,
+      transcript,
+      logConfig,
+      opts?.aiProvider
+    );
   }
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -401,12 +411,17 @@ When ready to speak to the user, choose final_answer.
     }
 
     if (decision.action === "create_plan") {
-      await handleCreatePlan(decision, transcript, logConfig);
+      await handleCreatePlan(decision, transcript, logConfig, opts?.aiProvider);
       continue;
     }
 
     if (decision.action === "analyze_project") {
-      await handleAnalyzeProject(decision, transcript, logConfig);
+      await handleAnalyzeProject(
+        decision,
+        transcript,
+        logConfig,
+        opts?.aiProvider
+      );
       continue;
     }
 
