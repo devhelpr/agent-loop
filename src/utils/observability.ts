@@ -239,12 +239,38 @@ export async function initObservability(config?: ObservabilityConfig) {
 
     // Success message
     console.log("✅ Grafana observability initialized successfully");
+
+    // Log OTLP trace exporter status
     if (otlpTracesUrl) {
-      console.log(`   📡 Traces will be exported to: ${otlpTracesUrl}`);
+      if (traceExporter) {
+        console.log(`   ✅ OTLP trace exporter initialized successfully`);
+        console.log(`   📡 Traces will be exported to: ${otlpTracesUrl}`);
+        if (Object.keys(otlpHeaders).length > 0) {
+          const hasAuth = otlpHeaders["Authorization"]
+            ? "configured"
+            : "not configured";
+          console.log(`   🔐 Authentication: ${hasAuth}`);
+        }
+      } else {
+        console.log(
+          `   ⚠️  OTLP traces URL configured (${otlpTracesUrl}) but exporter failed to initialize`
+        );
+      }
+    } else {
+      console.log(
+        `   ℹ️  OTLP traces URL not configured - traces will not be exported`
+      );
     }
-    console.log(
-      `   📊 Metrics available at: http://localhost:${prometheusPort}${prometheusEndpoint}`
-    );
+
+    // Log Prometheus metrics exporter status
+    if (metricExporter) {
+      console.log(`   ✅ Prometheus metrics exporter initialized successfully`);
+      console.log(
+        `   📊 Metrics available at: http://localhost:${prometheusPort}${prometheusEndpoint}`
+      );
+    } else {
+      console.log(`   ⚠️  Prometheus metrics exporter failed to initialize`);
+    }
 
     // Graceful shutdown
     process.on("SIGTERM", async () => {
