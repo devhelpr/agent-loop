@@ -18,6 +18,7 @@ import {
 } from "../ai/api-calls";
 import { prompt } from "../ai/prompts";
 import { AIProvider } from "../ai/ai-client";
+import { withSpan } from "../utils/observability";
 
 // Validation function to ensure decision structure is correct
 function validateDecision(parsed: any): Decision | null {
@@ -186,17 +187,14 @@ When ready to speak to the user, choose final_answer.
     let decisionResp: Awaited<ReturnType<typeof makeAICallWithSchema>>;
 
     try {
-      decisionResp = await makeAICallWithSchema(
-        transcript,
-        DecisionSchema,
-        logConfig,
-        {
+      decisionResp = await withSpan("ai.call", () =>
+        makeAICallWithSchema(transcript, DecisionSchema, logConfig, {
           maxRetries: 3,
           timeoutMs: 120000, // 2 minutes
           truncateTranscript: true,
           provider: opts?.aiProvider,
           model: opts?.aiModel,
-        }
+        })
       );
     } catch (error) {
       logError(logConfig, "AI API call failed after all retries", error);
@@ -314,21 +312,23 @@ When ready to speak to the user, choose final_answer.
           },
         ];
 
-        final = await makeAICallWithSchema(
-          summaryMessages,
-          z
-            .object({
-              summary: z.string(),
-            })
-            .describe("Summary"),
-          logConfig,
-          {
-            maxRetries: 2,
-            timeoutMs: 60000,
-            truncateTranscript: false,
-            provider: opts?.aiProvider,
-            model: opts?.aiModel,
-          }
+        final = await withSpan("ai.summary", () =>
+          makeAICallWithSchema(
+            summaryMessages,
+            z
+              .object({
+                summary: z.string(),
+              })
+              .describe("Summary"),
+            logConfig,
+            {
+              maxRetries: 2,
+              timeoutMs: 60000,
+              truncateTranscript: false,
+              provider: opts?.aiProvider,
+              model: opts?.aiModel,
+            }
+          )
         );
       } catch (summaryError) {
         logError(
