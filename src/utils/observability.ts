@@ -86,7 +86,7 @@ export async function initObservability(config?: ObservabilityConfig) {
       // @ts-ignore: optional dependency may be missing during type-check
       import("@opentelemetry/exporter-trace-otlp-http") as any,
       // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/exporter-metrics-prometheus") as any,
+      import("@opentelemetry/exporter-prometheus") as any,
       // @ts-ignore: optional dependency may be missing during type-check
       import("@opentelemetry/resources") as any,
       // @ts-ignore: optional dependency may be missing during type-check
@@ -122,6 +122,130 @@ export async function initObservability(config?: ObservabilityConfig) {
     tracer = trace.getTracer(serviceName);
     meter = metrics.getMeter(serviceName);
 
+    // Validate initialization
+    const validationErrors: string[] = [];
+
+    // Check SDK is initialized
+    if (!sdk) {
+      validationErrors.push("SDK failed to initialize");
+    }
+
+    // Check tracer is available
+    if (!tracer) {
+      validationErrors.push("Tracer failed to initialize");
+    } else {
+      // Test tracer by creating a test span
+      try {
+        await tracer.startActiveSpan(
+          "observability.initialization.test",
+          {
+            kind: 1, // SpanKind.INTERNAL
+          },
+          async (testSpan: any) => {
+            testSpan.setAttribute("test", true);
+            testSpan.setAttribute("initialization.check", "passed");
+            testSpan.end();
+          }
+        );
+      } catch (tracerErr) {
+        validationErrors.push(
+          `Tracer test span creation failed: ${
+            tracerErr instanceof Error ? tracerErr.message : String(tracerErr)
+          }`
+        );
+      }
+    }
+
+    // Check meter is available
+    if (!meter) {
+      validationErrors.push("Meter failed to initialize");
+    } else {
+      // Test meter by creating a test counter
+      try {
+        const testCounter = meter.createCounter(
+          "observability_initialization_test",
+          {
+            description: "Test counter for initialization validation",
+          }
+        );
+        testCounter.add(1, { test: "initialization_check" });
+      } catch (meterErr) {
+        validationErrors.push(
+          `Meter test counter creation failed: ${
+            meterErr instanceof Error ? meterErr.message : String(meterErr)
+          }`
+        );
+      }
+    }
+
+    // Check trace exporter if OTLP URL is configured
+    if (otlpTracesUrl) {
+      if (!traceExporter) {
+        validationErrors.push(
+          "OTLP traces URL configured but trace exporter failed to initialize"
+        );
+      } else {
+        // Verify exporter has correct configuration
+        try {
+          // Check if exporter has export method (basic validation)
+          if (typeof traceExporter.export !== "function") {
+            validationErrors.push("Trace exporter missing export method");
+          }
+        } catch (exporterErr) {
+          validationErrors.push(
+            `Trace exporter validation failed: ${
+              exporterErr instanceof Error
+                ? exporterErr.message
+                : String(exporterErr)
+            }`
+          );
+        }
+      }
+    }
+
+    // Check Prometheus exporter
+    if (!metricExporter) {
+      validationErrors.push("Prometheus metric exporter failed to initialize");
+    } else {
+      try {
+        // Verify exporter is listening (basic check)
+        if (typeof metricExporter.getMetricsRequestHandler !== "function") {
+          // Some versions might have different APIs, but we expect some form of HTTP handler
+          // This is a soft check - the exporter should work even if the method name differs
+        }
+      } catch (promErr) {
+        validationErrors.push(
+          `Prometheus exporter validation failed: ${
+            promErr instanceof Error ? promErr.message : String(promErr)
+          }`
+        );
+      }
+    }
+
+    // If validation fails, log errors and exit
+    if (validationErrors.length > 0) {
+      console.error(
+        "❌ Grafana observability initialization validation failed:"
+      );
+      validationErrors.forEach((error, index) => {
+        console.error(`   ${index + 1}. ${error}`);
+      });
+      console.error("\n   Application will now exit.");
+      try {
+        await sdk?.shutdown();
+      } catch (_) {}
+      process.exit(1);
+    }
+
+    // Success message
+    console.log("✅ Grafana observability initialized successfully");
+    if (otlpTracesUrl) {
+      console.log(`   📡 Traces will be exported to: ${otlpTracesUrl}`);
+    }
+    console.log(
+      `   📊 Metrics available at: http://localhost:${prometheusPort}${prometheusEndpoint}`
+    );
+
     // Graceful shutdown
     process.on("SIGTERM", async () => {
       try {
@@ -132,8 +256,24 @@ export async function initObservability(config?: ObservabilityConfig) {
 
     initialized = true;
   } catch (err) {
-    // Dependencies likely not installed; remain no-op
-    initialized = true;
+    // If observability is explicitly enabled but fails, log and exit
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : undefined;
+
+    console.error("❌ Grafana observability initialization failed:");
+    console.error(`   Error: ${errorMessage}`);
+    if (errorStack) {
+      console.error(`   Stack: ${errorStack}`);
+    }
+    console.error("\n   This may be due to:");
+    console.error("   - Missing OpenTelemetry dependencies (run: npm install)");
+    console.error(
+      "   - Invalid configuration (check GRAFANA_* environment variables)"
+    );
+    console.error("   - Network issues connecting to Grafana OTLP endpoint");
+    console.error("\n   Application will now exit.");
+
+    process.exit(1);
   }
 }
 
@@ -145,6 +285,82 @@ export function getMeter() {
   return meter;
 }
 
+/**
+ * Verify that observability is properly initialized and traces can be created
+ * Returns an object with validation results
+ */
+export async function verifyObservability(): Promise<{
+  initialized: boolean;
+  tracerWorking: boolean;
+  meterWorking: boolean;
+  errors: string[];
+}> {
+  const result = {
+    initialized,
+    tracerWorking: false,
+    meterWorking: false,
+    errors: [] as string[],
+  };
+
+  if (!initialized) {
+    result.errors.push("Observability not initialized");
+    return result;
+  }
+
+  // Test tracer
+  if (!tracer) {
+    result.errors.push("Tracer is null");
+  } else {
+    try {
+      await tracer.startActiveSpan(
+        "observability.verification.test",
+        {
+          kind: 1, // SpanKind.INTERNAL
+        },
+        async (testSpan: any) => {
+          testSpan.setAttribute("verification.test", true);
+          testSpan.setAttribute("timestamp", Date.now());
+          testSpan.end();
+        }
+      );
+      result.tracerWorking = true;
+    } catch (err) {
+      result.errors.push(
+        `Tracer verification failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  }
+
+  // Test meter
+  if (!meter) {
+    result.errors.push("Meter is null");
+  } else {
+    try {
+      const testCounter = meter.createCounter(
+        "observability_verification_test",
+        {
+          description: "Test counter for runtime verification",
+        }
+      );
+      testCounter.add(1, {
+        verification: "runtime_check",
+        timestamp: Date.now(),
+      });
+      result.meterWorking = true;
+    } catch (err) {
+      result.errors.push(
+        `Meter verification failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  }
+
+  return result;
+}
+
 export async function withSpan<T>(
   name: string,
   fn: (span?: any) => Promise<T> | T
@@ -152,19 +368,43 @@ export async function withSpan<T>(
   if (!tracer) {
     return await fn();
   }
-  return await tracer.startActiveSpan(name, async (span: any) => {
-    try {
-      const res = await fn(span);
-      span.setAttribute("success", true);
-      span.end();
-      return res;
-    } catch (e: any) {
-      span.recordException?.(e);
-      span.setAttribute("success", false);
-      span.end();
-      throw e;
-    }
-  });
+
+  // Verify tracer is still working before creating span
+  if (!initialized) {
+    console.warn(
+      `⚠️  Attempted to create span "${name}" but observability is not initialized`
+    );
+    return await fn();
+  }
+
+  try {
+    return await tracer.startActiveSpan(name, async (span: any) => {
+      try {
+        const res = await fn(span);
+        span.setAttribute("success", true);
+        span.end();
+        return res;
+      } catch (e: any) {
+        span.recordException?.(e);
+        span.setAttribute("success", false);
+        span.setAttribute(
+          "error.message",
+          e instanceof Error ? e.message : String(e)
+        );
+        span.end();
+        throw e;
+      }
+    });
+  } catch (spanError: any) {
+    // If span creation fails, log but don't break the application
+    console.error(
+      `⚠️  Failed to create span "${name}": ${
+        spanError instanceof Error ? spanError.message : String(spanError)
+      }`
+    );
+    // Still execute the function even if span creation failed
+    return await fn();
+  }
 }
 
 // Convenience helpers for metrics (safe no-ops if not initialized)
