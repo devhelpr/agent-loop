@@ -1,3 +1,4 @@
+```mermaid
 flowchart LR
 
 A[Codebase repo] --> B[AI agent scans repo]
@@ -20,3 +21,4 @@ G --> O2[Living documentation]
 
 H -. edit diagram .-> M[Apply diagram edits to code experimental]
 M --> K
+```
