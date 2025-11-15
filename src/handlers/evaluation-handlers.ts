@@ -13,10 +13,22 @@ export async function handleEvaluateWork(
   // Extract user's goal from transcript (first user message)
   const userGoal = transcript.find((msg) => msg.role === "user")?.content;
 
+  // Extract plan context from transcript
+  const planSummary = transcript.find(
+    (msg) => msg.role === "assistant" && msg.content.startsWith("plan_summary:")
+  )?.content;
+
+  const analysisSummary = transcript.find(
+    (msg) =>
+      msg.role === "assistant" && msg.content.startsWith("analysis_summary:")
+  )?.content;
+
   log(logConfig, "tool-call", "Executing evaluate_work", {
     files: decision.tool_input.files,
     criteria: decision.tool_input.criteria,
     hasUserGoal: !!userGoal,
+    hasPlanContext: !!planSummary,
+    hasAnalysisContext: !!analysisSummary,
   });
 
   let out;
@@ -79,6 +91,8 @@ EVALUATION SUMMARY:
 - Files Analyzed: ${out.files_analyzed.join(", ")}
 - Criteria: ${out.criteria_used}${
     userGoal ? `\n- User's Goal: ${userGoal}` : ""
+  }${planSummary ? `\n- Execution Plan: Available` : ""}${
+    analysisSummary ? `\n- Project Analysis: Available` : ""
   }
 
 STRENGTHS:
@@ -105,7 +119,15 @@ IMPORTANT GUIDANCE:
 - Always read files with read_files before making any modifications
 - Focus on high-priority suggestions that align with the user's request
 - Avoid making changes that deviate from the user's original intent
-- The evaluation has been performed with the user's goal in mind - suggestions should be goal-aligned
+- The evaluation has been performed with the user's goal in mind - suggestions should be goal-aligned${
+    planSummary
+      ? "\n- Reference the execution plan to ensure you're following the structured approach"
+      : ""
+  }${
+    analysisSummary
+      ? "\n- Consider the project context and technology stack when implementing suggestions"
+      : ""
+  }
 `;
 
   transcript.push({

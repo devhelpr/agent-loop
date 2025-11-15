@@ -1,20 +1,24 @@
 import { LogConfig, log, logError } from "../utils/logging";
 import { DecisionSchema, Decision } from "../types/decision";
+import { z } from "zod";
 import {
   handleReadFiles,
   handleSearchRepo,
   handleWritePatch,
   handleRunCmd,
   handleEvaluateWork,
+  handleCreatePlan,
+  handleAnalyzeProject,
 } from "../handlers";
 import {
-  makeOpenAICall,
+  makeAICallWithSchema,
   getTokenStats,
   resetTokenStats,
   displayTokenSummary,
 } from "../ai/api-calls";
 import { prompt } from "../ai/prompts";
 import { AIProvider } from "../ai/ai-client";
+import { withSpan } from "../utils/observability";
 
 // Validation function to ensure decision structure is correct
 function validateDecision(parsed: any): Decision | null {
@@ -29,6 +33,8 @@ function validateDecision(parsed: any): Decision | null {
     "write_patch",
     "run_cmd",
     "evaluate_work",
+    "create_plan",
+    "analyze_project",
     "final_answer",
   ];
 
@@ -105,6 +111,80 @@ When ready to speak to the user, choose final_answer.
     { role: "user", content: userGoal },
   ];
 
+  // Planning phase: Analyze project and create plan for complex tasks
+  log(logConfig, "step", "=== Planning Phase ===");
+
+  // Always analyze the project first
+  const analyzeDecision: Decision = {
+    action: "analyze_project",
+    tool_input: { scan_directories: ["."] },
+    rationale: "Analyzing project structure before starting work",
+  };
+
+  await handleAnalyzeProject(
+    analyzeDecision,
+    transcript,
+    logConfig,
+    opts?.aiProvider
+  );
+
+  // For complex tasks, create a structured plan
+  const isComplexTask =
+    userGoal.length > 100 ||
+    userGoal.toLowerCase().includes("implement") ||
+    userGoal.toLowerCase().includes("create") ||
+    userGoal.toLowerCase().includes("build") ||
+    (userGoal.toLowerCase().includes("add") &&
+      userGoal.toLowerCase().includes("feature"));
+
+  if (isComplexTask) {
+    log(logConfig, "step", "Complex task detected, creating execution plan");
+
+    const planDecision: Decision = {
+      action: "create_plan",
+      tool_input: {
+        plan_steps: [
+          {
+            step: "Analyze existing codebase and understand requirements",
+            required: true,
+            dependencies: [],
+          },
+          {
+            step: "Implement core functionality as requested",
+            required: true,
+            dependencies: [
+              "Analyze existing codebase and understand requirements",
+            ],
+          },
+          {
+            step: "Test and validate the implementation",
+            required: true,
+            dependencies: ["Implement core functionality as requested"],
+          },
+          {
+            step: "Add error handling and edge cases",
+            required: false,
+            dependencies: ["Implement core functionality as requested"],
+          },
+          {
+            step: "Optimize and refactor if needed",
+            required: false,
+            dependencies: ["Test and validate the implementation"],
+          },
+        ],
+        project_context: "Project analysis will provide context",
+      },
+      rationale: "Creating structured plan for complex task execution",
+    };
+
+    await handleCreatePlan(
+      planDecision,
+      transcript,
+      logConfig,
+      opts?.aiProvider
+    );
+  }
+
   for (let step = 1; step <= maxSteps; step++) {
     log(logConfig, "step", `=== Step ${step}/${maxSteps} ===`, {
       writes,
@@ -114,20 +194,17 @@ When ready to speak to the user, choose final_answer.
       messageCount: transcript.length,
     });
 
-    let decisionResp: Awaited<ReturnType<typeof makeOpenAICall>>;
+    let decisionResp: Awaited<ReturnType<typeof makeAICallWithSchema>>;
 
     try {
-      decisionResp = await makeOpenAICall(
-        transcript,
-        DecisionSchema,
-        logConfig,
-        {
+      decisionResp = await withSpan("ai.call", () =>
+        makeAICallWithSchema(transcript, DecisionSchema, logConfig, {
           maxRetries: 3,
           timeoutMs: 120000, // 2 minutes
           truncateTranscript: true,
           provider: opts?.aiProvider,
           model: opts?.aiModel,
-        }
+        })
       );
     } catch (error) {
       logError(logConfig, "AI API call failed after all retries", error);
@@ -245,24 +322,23 @@ When ready to speak to the user, choose final_answer.
           },
         ];
 
-        final = await makeOpenAICall(
-          summaryMessages,
-          {
-            name: "Summary",
-            strict: false,
-            schema: {
-              type: "object",
-              properties: { summary: { type: "string" } },
-            },
-          },
-          logConfig,
-          {
-            maxRetries: 2,
-            timeoutMs: 60000,
-            truncateTranscript: false,
-            provider: opts?.aiProvider,
-            model: opts?.aiModel,
-          }
+        final = await withSpan("ai.summary", () =>
+          makeAICallWithSchema(
+            summaryMessages,
+            z
+              .object({
+                summary: z.string(),
+              })
+              .describe("Summary"),
+            logConfig,
+            {
+              maxRetries: 2,
+              timeoutMs: 60000,
+              truncateTranscript: false,
+              provider: opts?.aiProvider,
+              model: opts?.aiModel,
+            }
+          )
         );
       } catch (summaryError) {
         logError(
@@ -331,6 +407,21 @@ When ready to speak to the user, choose final_answer.
 
     if (decision.action === "evaluate_work") {
       await handleEvaluateWork(decision, transcript, logConfig);
+      continue;
+    }
+
+    if (decision.action === "create_plan") {
+      await handleCreatePlan(decision, transcript, logConfig, opts?.aiProvider);
+      continue;
+    }
+
+    if (decision.action === "analyze_project") {
+      await handleAnalyzeProject(
+        decision,
+        transcript,
+        logConfig,
+        opts?.aiProvider
+      );
       continue;
     }
 

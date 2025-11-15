@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import { text, isCancel } from "@clack/prompts";
 import { runCodingAgent } from "./core/agent.js";
+import { initObservability, withSpan } from "./utils/observability.js";
 import { AIProvider } from "./ai/ai-client.js";
 
 const program = new Command();
@@ -54,6 +55,8 @@ program
 
 async function main() {
   const options = program.opts();
+  // Initialize optional observability (no-op if disabled or deps missing)
+  await initObservability({ serviceName: "agent-loop-cli" });
 
   // Check for AI provider API key
   const provider = options.provider as AIProvider;
@@ -179,17 +182,19 @@ async function main() {
   }
 
   try {
-    const result = await runCodingAgent(userPrompt, {
-      maxSteps,
-      hardCaps: {
-        maxWrites,
-        maxCmds: maxCommands,
-      },
-      testCommand,
-      logging,
-      aiProvider: provider,
-      aiModel: options.model,
-    });
+    const result = await withSpan("agent.run", () =>
+      runCodingAgent(userPrompt, {
+        maxSteps,
+        hardCaps: {
+          maxWrites,
+          maxCmds: maxCommands,
+        },
+        testCommand,
+        logging,
+        aiProvider: provider,
+        aiModel: options.model,
+      })
+    );
 
     // Clear timeout since we completed successfully
     if (timeoutId) {

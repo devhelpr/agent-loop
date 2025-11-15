@@ -2,6 +2,10 @@ import { LogConfig, log } from "../utils/logging";
 import { generateObject, generateText, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { AIClient, AIProvider } from "./ai-client";
+import { planningPrompt } from "./prompts/planning";
+import { projectAnalysisPrompt } from "./prompts/project-analysis";
+import { PlanStep, ExecutionPlan } from "../tools/planning";
+import { ProjectAnalysis } from "../tools/project-analysis";
 
 // Global token tracking
 let totalInputTokens = 0;
@@ -470,115 +474,203 @@ function repairMalformedJSON(text: string): string {
   }
 }
 
-// Backward compatibility function
-export async function makeOpenAICall(
+// Generic AI call function with schema validation
+export async function makeAICallWithSchema(
   messages: Array<{ role: string; content: string }>,
-  schema: any,
+  schema: z.ZodSchema,
   logConfig: LogConfig,
   options: ApiCallOptions = {}
 ) {
-  // Convert JSON schema to Zod schema if needed
-  let zodSchema: z.ZodSchema;
-
-  if (schema && typeof schema === "object") {
-    // Handle nested schema structure (like DecisionSchema)
-    const actualSchema = schema.schema || schema;
-
-    if (actualSchema && actualSchema.type === "object") {
-      // Convert JSON schema to Zod schema
-      zodSchema = convertJsonSchemaToZod(actualSchema);
-    } else if (schema && typeof schema.parse === "function") {
-      // Already a Zod schema
-      zodSchema = schema;
-    } else {
-      // Fallback to any object
-      zodSchema = z.any();
-    }
-  } else if (schema && typeof schema.parse === "function") {
-    // Already a Zod schema
-    zodSchema = schema;
-  } else {
-    // Fallback to any object
-    zodSchema = z.any();
-  }
-
-  return makeAICall(messages, zodSchema, logConfig, {
+  return makeAICall(messages, schema, logConfig, {
     ...options,
     provider: options.provider || "openai",
   });
 }
 
-// Helper function to convert JSON schema to Zod schema
-function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
-  if (!jsonSchema || typeof jsonSchema !== "object") {
-    return z.any();
+// Planning API call function
+export async function createPlanWithAI(
+  userGoal: string,
+  projectContext?: string,
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ExecutionPlan> {
+  const planStepSchema = z.object({
+    step: z.string().describe("Clear description of the step to be executed"),
+    required: z
+      .boolean()
+      .describe("Whether this step is required to achieve the user's goal"),
+    dependencies: z
+      .array(z.string())
+      .optional()
+      .describe("Array of step IDs that must be completed before this step"),
+  });
+
+  const planningSchema = z.object({
+    steps: z
+      .array(planStepSchema)
+      .describe("Array of plan steps in execution order"),
+    projectContext: z
+      .string()
+      .optional()
+      .describe("Summary of project context and technology stack"),
+    userGoal: z.string().describe("The user's goal that this plan addresses"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: planningPrompt,
+    },
+    {
+      role: "user",
+      content: `Create a structured execution plan for the following goal:
+
+**User Goal:** ${userGoal}
+
+${projectContext ? `**Project Context:** ${projectContext}` : ""}
+
+Please analyze this goal and create a detailed, executable plan with clear steps, dependencies, and priorities. Focus on breaking down complex tasks into manageable, sequential steps.`,
+    },
+  ];
+
+  log(logConfig, "planning", "Creating AI-generated execution plan", {
+    userGoal,
+    hasProjectContext: !!projectContext,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    planningSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI planning call");
   }
 
-  if (jsonSchema.type === "object" && jsonSchema.properties) {
-    const shape: Record<string, z.ZodSchema> = {};
+  const planData = JSON.parse(response.choices[0].message.content);
 
-    for (const [key, prop] of Object.entries(jsonSchema.properties)) {
-      const propSchema = prop as any;
-      let zodProp: z.ZodSchema;
+  // Convert to ExecutionPlan format
+  const executionPlan: ExecutionPlan = {
+    steps: planData.steps,
+    projectContext: planData.projectContext || projectContext,
+    createdAt: new Date(),
+    userGoal: planData.userGoal || userGoal,
+  };
 
-      switch (propSchema.type) {
-        case "string":
-          if (propSchema.enum) {
-            zodProp = z.enum(propSchema.enum);
-          } else {
-            zodProp = z.string();
-          }
-          break;
-        case "number":
-          zodProp = z.number();
-          break;
-        case "boolean":
-          zodProp = z.boolean();
-          break;
-        case "array":
-          if (propSchema.items) {
-            const itemSchema = convertJsonSchemaToZod(propSchema.items);
-            zodProp = z.array(itemSchema);
-          } else {
-            zodProp = z.array(z.any());
-          }
-          break;
-        case "object":
-          zodProp = convertJsonSchemaToZod(propSchema);
-          break;
-        default:
-          zodProp = z.any();
-      }
+  log(logConfig, "planning", "AI-generated plan created successfully", {
+    stepCount: executionPlan.steps.length,
+    requiredSteps: executionPlan.steps.filter((s) => s.required).length,
+    optionalSteps: executionPlan.steps.filter((s) => !s.required).length,
+  });
 
-      // Make tool_input optional to be more permissive with schema validation
-      // The actual validation is handled by validateDecision function in agent.ts
-      if (key === "tool_input") {
-        shape[key] = zodProp.optional();
-      } else if (jsonSchema.required && jsonSchema.required.includes(key)) {
-        shape[key] = zodProp;
-      } else {
-        shape[key] = zodProp.optional();
-      }
-    }
+  return executionPlan;
+}
 
-    return z
-      .object(shape)
-      .describe(
-        `JSON Schema converted to Zod: ${jsonSchema.title || "Object"}`
-      );
+// Project Analysis API call function
+export async function analyzeProjectWithAI(
+  scanDirectories: string[],
+  projectFiles: string[],
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ProjectAnalysis> {
+  const projectAnalysisSchema = z.object({
+    language: z.string().describe("Primary programming language detected"),
+    projectType: z
+      .enum(["node", "browser", "library", "unknown"])
+      .describe("Type of project"),
+    buildTools: z
+      .array(z.string())
+      .describe("Build tools and bundlers detected"),
+    testFramework: z
+      .string()
+      .optional()
+      .describe("Testing framework if detected"),
+    packageManager: z.string().optional().describe("Package manager used"),
+    hasTypeScript: z.boolean().describe("Whether TypeScript is used"),
+    hasReact: z.boolean().describe("Whether React is used"),
+    hasVue: z.boolean().describe("Whether Vue is used"),
+    hasAngular: z.boolean().describe("Whether Angular is used"),
+    mainFiles: z.array(z.string()).describe("Key source files found"),
+    configFiles: z.array(z.string()).describe("Configuration files found"),
+    dependencies: z
+      .record(z.string(), z.string())
+      .describe("Production dependencies"),
+    devDependencies: z
+      .record(z.string(), z.string())
+      .describe("Development dependencies"),
+    architecture: z
+      .string()
+      .optional()
+      .describe("Architectural patterns detected"),
+    recommendations: z
+      .array(z.string())
+      .optional()
+      .describe("Recommendations for improvements"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: projectAnalysisPrompt,
+    },
+    {
+      role: "user",
+      content: `Analyze the following project structure:
+
+**Scan Directories:** ${scanDirectories.join(", ")}
+
+**Project Files Found:** ${projectFiles.join(", ")}
+
+Please provide a comprehensive analysis of this project's technology stack, structure, dependencies, and architecture. Focus on identifying key technologies, patterns, and providing actionable insights.`,
+    },
+  ];
+
+  log(logConfig, "project-analysis", "Performing AI-powered project analysis", {
+    scanDirectories,
+    fileCount: projectFiles.length,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    projectAnalysisSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI project analysis call");
   }
 
-  // Handle other types
-  switch (jsonSchema.type) {
-    case "string":
-      return z.string();
-    case "number":
-      return z.number();
-    case "boolean":
-      return z.boolean();
-    case "array":
-      return z.array(z.any());
-    default:
-      return z.any();
-  }
+  const analysisData = JSON.parse(response.choices[0].message.content);
+
+  // Convert to ProjectAnalysis format
+  const projectAnalysis: ProjectAnalysis = {
+    language: analysisData.language,
+    projectType: analysisData.projectType,
+    buildTools: analysisData.buildTools,
+    testFramework: analysisData.testFramework,
+    packageManager: analysisData.packageManager,
+    hasTypeScript: analysisData.hasTypeScript,
+    hasReact: analysisData.hasReact,
+    hasVue: analysisData.hasVue,
+    hasAngular: analysisData.hasAngular,
+    mainFiles: analysisData.mainFiles,
+    configFiles: analysisData.configFiles,
+    dependencies: analysisData.dependencies,
+    devDependencies: analysisData.devDependencies,
+  };
+
+  log(logConfig, "project-analysis", "AI-powered project analysis completed", {
+    language: projectAnalysis.language,
+    projectType: projectAnalysis.projectType,
+    buildToolsCount: projectAnalysis.buildTools.length,
+    hasTypeScript: projectAnalysis.hasTypeScript,
+    hasReact: projectAnalysis.hasReact,
+  });
+
+  return projectAnalysis;
 }

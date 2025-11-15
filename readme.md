@@ -144,6 +144,16 @@ flowchart TD
 
 Install globally to use from anywhere on your system:
 
+**Option 1: Using the install-global script (recommended)**
+
+```bash
+npm run install-global
+```
+
+This will build the project and install it globally in one step.
+
+**Option 2: Manual installation**
+
 ```bash
 npm install -g .
 ```
@@ -154,9 +164,7 @@ If you need extra permissions, then:
 chmod +x <path>/agent-loop/dist/src/cli.js
 ```
 
-Then you can run it with:
-
-Or use directly without installation:
+**Option 3: Use directly without installation**
 
 ```bash
 npx agent-loop
@@ -234,6 +242,20 @@ agent-loop --prompt "Create a simple script" --provider ollama --model granite4:
 - `AGENT_CONSOLE_LOGGING=false` : Disable console logging (default: true)
 - `AGENT_FILE_LOGGING=true` : Enable file logging (default: false)
 - `AGENT_LOG_FILE=path/to/log` : Log file path (default: agent-log.txt)
+
+### Observability (Optional, Grafana-ready):
+- `GRAFANA_OBS_ENABLED=true` : Enable OpenTelemetry-based observability (default: disabled)
+- `SERVICE_NAME=agent-loop` : Service name for traces/metrics
+- `GRAFANA_PROM_PORT=9464` : Prometheus exporter port (default: 9464)
+- `GRAFANA_PROM_ENDPOINT=/metrics` : Prometheus endpoint path (default: /metrics)
+- `GRAFANA_OTLP_TRACES_URL=https://<otlp-endpoint>/v1/traces` : OTLP HTTP traces endpoint
+- `GRAFANA_API_KEY=<token>` : Grafana API key to use for OTLP Authorization header
+- `GRAFANA_OTLP_AUTH_SCHEME=Bearer` : Auth scheme for the Authorization header (default: Bearer)
+- `GRAFANA_OTLP_HEADERS` : Extra headers to send with OTLP requests. JSON or comma-separated `key=value` pairs. If both this and `GRAFANA_API_KEY` are provided, and `Authorization` is not set here, an `Authorization: <scheme> <key>` header will be added automatically.
+
+Notes:
+- Metrics are exposed locally at `http://localhost:<GRAFANA_PROM_PORT><GRAFANA_PROM_ENDPOINT>` for Prometheus scraping. Point Grafana to your Prometheus datasource.
+- Traces are exported to the OTLP HTTP endpoint if `GRAFANA_OTLP_TRACES_URL` is set. For Grafana Cloud, provide the correct headers via `GRAFANA_OTLP_HEADERS`.
 
 ### Provider Selection:
 You can specify which AI provider to use via CLI options:
