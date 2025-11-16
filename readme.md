@@ -251,11 +251,6 @@ agent-loop --prompt "Create a simple script" --provider ollama --model granite4:
 
 **Note**: Metrics are currently disabled. Only traces are exported to Jaeger using OTLP (OpenTelemetry Protocol).
 
-**Legacy Support (deprecated):**
-- The following environment variables are still supported for backward compatibility but are deprecated:
-  - `JAEGER_OBS_ENABLED`
-  - `JAEGER_OTLP_TRACES_URL` or `JAEGER_ENDPOINT`
-
 Notes:
 - **Jaeger Setup**: To use Jaeger, ensure it's running locally. You can start it with:
   ```bash
