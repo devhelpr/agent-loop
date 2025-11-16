@@ -4,8 +4,18 @@
 */
 
 // Import types from OpenTelemetry packages (type-only imports are safe for optional dependencies)
-import type { Tracer, Span, Meter, SpanKind } from "@opentelemetry/api";
-import type { NodeSDK as NodeSDKType } from "@opentelemetry/sdk-node";
+import type { Tracer, Span, Meter, SpanKind, AttributeValue, MetricAttributeValue } from "@opentelemetry/api";
+import type { NodeSDK as NodeSDKType, NodeSDKConfiguration } from "@opentelemetry/sdk-node";
+
+// Instrumentation type - defined locally since @opentelemetry/instrumentation is not a direct dependency
+// This matches the structure expected by NodeSDK
+type Instrumentation = {
+  instrumentationName: string;
+  instrumentationVersion: string;
+  enable(): void;
+  disable(): void;
+  [key: string]: unknown;
+};
 
 // Extend NodeSDK type to include optional forceFlush method
 type NodeSDK = NodeSDKType & { forceFlush?(): Promise<void> };
@@ -102,18 +112,18 @@ export async function initObservability(config?: ObservabilityConfig) {
       httpInstrumentationModule,
       undiciInstrumentationModule,
     ] = await Promise.all([
-      import("@opentelemetry/sdk-node") as Promise<{ NodeSDK: new (config?: any) => NodeSDK }>,
+      import("@opentelemetry/sdk-node") as Promise<{ NodeSDK: new (config?: Partial<NodeSDKConfiguration>) => NodeSDK }>,
       import("@opentelemetry/exporter-trace-otlp-http") as Promise<{ OTLPTraceExporter: new (config?: { url?: string }) => OTLPTraceExporter }>,
-      import("@opentelemetry/resources") as Promise<{ Resource: new (attributes: Record<string, any>) => Resource }>,
+      import("@opentelemetry/resources") as Promise<{ Resource: new (attributes: Record<string, AttributeValue>) => Resource }>,
       import("@opentelemetry/semantic-conventions") as Promise<{ SemanticResourceAttributes: { SERVICE_NAME: string; SERVICE_VERSION: string; [key: string]: string } }>,
       import("@opentelemetry/api") as Promise<{ trace: { getTracer: (name: string) => Tracer }, SpanKind: typeof SpanKind }>,
       import("@opentelemetry/instrumentation-http").catch(() => null) as Promise<{ HttpInstrumentation: new () => HttpInstrumentation } | null>,
       (import("@opentelemetry/instrumentation-undici" as string).catch(() => null) as Promise<{ UndiciInstrumentation?: new () => UndiciInstrumentation } | null>),
     ]);
 
-    const { NodeSDK } = sdkNodeModule as { NodeSDK: new (config?: any) => NodeSDK };
+    const { NodeSDK } = sdkNodeModule as { NodeSDK: new (config?: Partial<NodeSDKConfiguration>) => NodeSDK };
     const { OTLPTraceExporter } = traceExporterModule as { OTLPTraceExporter: new (config?: { url?: string }) => OTLPTraceExporter };
-    const { Resource } = resourcesModule as { Resource: new (attributes: Record<string, any>) => Resource };
+    const { Resource } = resourcesModule as { Resource: new (attributes: Record<string, AttributeValue>) => Resource };
     const { SemanticResourceAttributes } = semanticConventionsModule as {
       SemanticResourceAttributes: { SERVICE_NAME: string; SERVICE_VERSION: string; [key: string]: string };
     };
@@ -139,20 +149,20 @@ export async function initObservability(config?: ObservabilityConfig) {
     // Jaeger only accepts traces, not metrics or logs
 
     // Build instrumentations array
-    const instrumentations: Array<InstanceType<typeof HttpInstrumentation> | UndiciInstrumentation> = [];
+    const instrumentations: Instrumentation[] = [];
     if (HttpInstrumentationClass) {
-      instrumentations.push(new HttpInstrumentationClass());
+      instrumentations.push(new HttpInstrumentationClass() as unknown as Instrumentation);
     }
     if (UndiciInstrumentationClass) {
-      instrumentations.push(new UndiciInstrumentationClass());
+      instrumentations.push(new UndiciInstrumentationClass() as unknown as Instrumentation);
     }
 
     sdk = new NodeSDK({
       resource,
       traceExporter,
       // No metricReader - metrics disabled for now
-      instrumentations: instrumentations.length > 0 ? instrumentations : undefined,
-    });
+      instrumentations: instrumentations.length > 0 ? (instrumentations as unknown) : undefined,
+    } as Partial<NodeSDKConfiguration>);
 
     await sdk.start();
 
@@ -560,7 +570,7 @@ export async function withSpan<T>(
 export async function recordErrorSpan(
   error: unknown,
   context: string,
-  additionalAttributes?: Record<string, any>
+  additionalAttributes?: Record<string, AttributeValue | undefined | unknown>
 ): Promise<void> {
   if (!tracer || !initialized) {
     return;
@@ -590,9 +600,25 @@ export async function recordErrorSpan(
       if (additionalAttributes) {
         for (const [key, value] of Object.entries(additionalAttributes)) {
           try {
+            // Skip undefined values
+            if (value === undefined) {
+              continue;
+            }
+            // Handle primitive types that match AttributeValue
             if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
               span.setAttribute(key, value);
+            } else if (Array.isArray(value)) {
+              // Check if it's a valid AttributeValue array (string, number, or boolean arrays)
+              const firstElement = value[0];
+              if (value.length === 0 || typeof firstElement === "string" || typeof firstElement === "number" || typeof firstElement === "boolean" || firstElement === null || firstElement === undefined) {
+                // Valid AttributeValue array
+                span.setAttribute(key, value as AttributeValue);
+              } else {
+                // Complex array, stringify it
+                span.setAttribute(key, JSON.stringify(value));
+              }
             } else {
+              // Complex object or other type, stringify it
               span.setAttribute(key, JSON.stringify(value));
             }
           } catch {
@@ -612,17 +638,17 @@ export async function recordErrorSpan(
 
 // Convenience helpers for metrics (safe no-ops if not initialized)
 export function getCounter(name: string, description?: string) {
-  if (!meter) return { add: (_v: number, _attrs?: Record<string, any>) => {} };
+  if (!meter) return { add: (_v: number, _attrs?: Record<string, MetricAttributeValue>) => {} };
   const c = meter.createCounter(name, { description });
-  return { add: (v: number, attrs?: Record<string, any>) => c.add(v, attrs) };
+  return { add: (v: number, attrs?: Record<string, MetricAttributeValue>) => c.add(v, attrs) };
 }
 
 export function getHistogram(name: string, description?: string) {
   if (!meter)
-    return { record: (_v: number, _attrs?: Record<string, any>) => {} };
+    return { record: (_v: number, _attrs?: Record<string, MetricAttributeValue>) => {} };
   const h = meter.createHistogram(name, { description });
   return {
-    record: (v: number, attrs?: Record<string, any>) => h.record(v, attrs),
+    record: (v: number, attrs?: Record<string, MetricAttributeValue>) => h.record(v, attrs),
   };
 }
 
