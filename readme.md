@@ -35,46 +35,63 @@ You can switch between providers using the `--provider` CLI option or by setting
 3. **write_patch**: Apply patches in unified diff format (preferred) or full-file format
 4. **run_cmd**: Execute shell commands
 5. **evaluate_work**: Analyze files and provide structured feedback for improvements
-6. **final_answer**: Complete the task and generate a summary
+6. **analyze_project**: Analyze project structure and context (automatically run at start)
+7. **create_plan**: Create a structured execution plan for complex tasks
+8. **final_answer**: Complete the task and generate a summary
 
 ## High-Level Agent Loop
 
 ```mermaid
-flowchart LR
-    A[User Goal] --> B[Agent Loop]
-    B --> C[LLM Decision]
-    C --> D[Execute Tool]
-    D --> E[Update Context]
-    E --> F{Task Complete?}
-    F -->|No| C
-    F -->|Yes| G[Final Answer]
+flowchart TD
+    A[User Goal] --> B[Planning Phase]
+    B --> B1[Analyze Project]
+    B1 --> B2{Complex Task?}
+    B2 -->|Yes| B3[Create Plan]
+    B2 -->|No| C
+    B3 --> C[Agent Loop]
+    C --> D[LLM Decision]
+    D --> E[Execute Tool]
+    E --> F[Update Context]
+    F --> G{Task Complete?}
+    G -->|No| D
+    G -->|Yes| H[Final Answer]
     
     subgraph "Available Tools"
-        H[read_files]
-        I[search_repo]
-        J[write_patch]
-        K[run_cmd]
-        L[evaluate_work]
+        I[read_files]
+        J[search_repo]
+        K[write_patch]
+        L[run_cmd]
+        M[evaluate_work]
+        N[analyze_project]
+        O[create_plan]
     end
     
-    D -.-> H
-    D -.-> I
-    D -.-> J
-    D -.-> K
-    D -.-> L
+    E -.-> I
+    E -.-> J
+    E -.-> K
+    E -.-> L
+    E -.-> M
+    E -.-> N
+    E -.-> O
     
     style A fill:#e1f5fe
     style B fill:#fff3e0
+    style B1 fill:#fff3e0
+    style B2 fill:#fff3e0
+    style B3 fill:#fff3e0
     style C fill:#f3e5f5
-    style D fill:#e8f5e8
-    style E fill:#fff9c4
-    style F fill:#ffecb3
-    style G fill:#c8e6c9
-    style H fill:#f0f8ff
+    style D fill:#f3e5f5
+    style E fill:#e8f5e8
+    style F fill:#fff9c4
+    style G fill:#ffecb3
+    style H fill:#c8e6c9
     style I fill:#f0f8ff
     style J fill:#f0f8ff
     style K fill:#f0f8ff
     style L fill:#f0f8ff
+    style M fill:#f0f8ff
+    style N fill:#f0f8ff
+    style O fill:#f0f8ff
 ```
 
 ## Detailed Architecture Diagram
@@ -83,61 +100,76 @@ flowchart LR
 flowchart TD
     A[Start Agent] --> B[Initialize Config & Reset Token Stats]
     B --> C[Setup Safety Caps & Transcript]
-    C --> D[Step Counter: 1 to maxSteps]
-    D --> E[Make AI API Call with Retries]
+    C --> D[Planning Phase]
     
-    E --> F{API Call Success?}
-    F -->|Failed| G[Log Error & Return with Token Stats]
-    F -->|Success| H[Parse JSON Response]
+    D --> D1[Always: Analyze Project]
+    D1 --> D2{Complex Task?}
+    D2 -->|Yes| D3[Create Execution Plan]
+    D2 -->|No| E
+    D3 --> E[Step Counter: 1 to maxSteps]
     
-    H --> I{Parse Success?}
-    I -->|Parse Error| J[Default to final_answer]
-    I -->|Success| K{Decision Type?}
+    E --> F[Make AI API Call with Retries]
     
-    K -->|read_files| L[Read Files Handler]
-    K -->|search_repo| M[Search Repository Handler]
-    K -->|write_patch| N[Write Patch Handler]
-    K -->|run_cmd| O[Run Command Handler]
-    K -->|evaluate_work| P[Evaluate Work Handler]
-    K -->|final_answer| Q[Generate Summary with AI]
-    K -->|unknown| R[Log Error & Add to Transcript]
+    F --> G{API Call Success?}
+    G -->|Failed| H[Log Error & Return with Token Stats]
+    G -->|Success| I[Parse JSON Response]
     
-    L --> S[Update Transcript with Results]
-    M --> S
-    N --> T{Check Write Limit}
-    O --> U{Check Command Limit}
-    P --> V[Analyze Files & Generate Structured Feedback]
-    R --> S
+    I --> J{Parse Success?}
+    J -->|Parse Error| K[Default to final_answer]
+    J -->|Success| L{Decision Type?}
     
-    T -->|Within Limit| S
-    T -->|Exceeded| W[Stop: Write Limit Reached]
-    U -->|Within Limit| S
-    U -->|Exceeded| X[Stop: Command Limit Reached]
+    L -->|read_files| M[Read Files Handler]
+    L -->|search_repo| N[Search Repository Handler]
+    L -->|write_patch| O[Write Patch Handler]
+    L -->|run_cmd| P[Run Command Handler]
+    L -->|evaluate_work| Q[Evaluate Work Handler]
+    L -->|analyze_project| R[Analyze Project Handler]
+    L -->|create_plan| S[Create Plan Handler]
+    L -->|final_answer| T[Generate Summary with AI]
+    L -->|unknown| U[Log Error & Add to Transcript]
     
-    V --> Y[Add Evaluation Results to Transcript]
-    Y --> S
+    M --> V[Update Transcript with Results]
+    N --> V
+    O --> W{Check Write Limit}
+    P --> X{Check Command Limit}
+    Q --> Y[Analyze Files & Generate Structured Feedback]
+    R --> V
+    S --> V
+    U --> V
     
-    S --> Z{Step < maxSteps?}
-    Z -->|Yes| D
-    Z -->|No| AA[Stop: Max Steps Reached]
+    W -->|Within Limit| V
+    W -->|Exceeded| Z[Stop: Write Limit Reached]
+    X -->|Within Limit| V
+    X -->|Exceeded| AA[Stop: Command Limit Reached]
     
-    Q --> BB[Display Token Summary & Return Result]
-    W --> BB
-    X --> BB
-    AA --> BB
-    G --> BB
-    BB --> CC[Process Exit]
+    Y --> AB[Add Evaluation Results to Transcript]
+    AB --> V
+    
+    V --> AC{Step < maxSteps?}
+    AC -->|Yes| E
+    AC -->|No| AD[Stop: Max Steps Reached]
+    
+    T --> AE[Display Token Summary & Return Result]
+    Z --> AE
+    AA --> AE
+    AD --> AE
+    H --> AE
+    AE --> AF[Process Exit]
     
     style A fill:#e1f5fe
-    style BB fill:#c8e6c9
-    style CC fill:#ffcdd2
-    style E fill:#fff3e0
-    style K fill:#f3e5f5
-    style P fill:#e8f5e8
-    style V fill:#e8f5e8
+    style D fill:#fff3e0
+    style D1 fill:#fff3e0
+    style D2 fill:#fff3e0
+    style D3 fill:#fff3e0
+    style AE fill:#c8e6c9
+    style AF fill:#ffcdd2
+    style F fill:#fff3e0
+    style L fill:#f3e5f5
+    style Q fill:#e8f5e8
     style Y fill:#e8f5e8
-    style T fill:#fff9c4
-    style U fill:#fff9c4
+    style AB fill:#e8f5e8
+    style W fill:#fff9c4
+    style X fill:#fff9c4
 ```
 
 ## CLI Usage
