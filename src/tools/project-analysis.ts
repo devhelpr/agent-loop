@@ -18,9 +18,33 @@ export interface ProjectAnalysis {
   devDependencies: Record<string, string>;
 }
 
+/**
+ * Finds the project root by looking for package.json upward from the current directory
+ */
+async function findProjectRoot(startDir: string = process.cwd()): Promise<string> {
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+
+  while (currentDir !== root) {
+    const packageJsonPath = path.join(currentDir, "package.json");
+    try {
+      await fs.access(packageJsonPath);
+      return currentDir;
+    } catch {
+      // package.json doesn't exist in this directory, try parent
+      currentDir = path.dirname(currentDir);
+    }
+  }
+
+  // If no package.json found, return the start directory as fallback
+  return path.resolve(startDir);
+}
+
 export async function analyze_project(
   scanDirectories: string[] = ["."]
 ): Promise<ProjectAnalysis> {
+  // Find the project root to ensure we don't scan outside the project
+  const projectRoot = await findProjectRoot();
   const analysis: ProjectAnalysis = {
     language: "unknown",
     projectType: "unknown",
@@ -37,7 +61,7 @@ export async function analyze_project(
 
   // Analyze package.json if it exists
   try {
-    const packageJsonPath = path.resolve("package.json");
+    const packageJsonPath = path.join(projectRoot, "package.json");
     const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
 
     analysis.dependencies = packageJson.dependencies || {};
@@ -88,7 +112,21 @@ export async function analyze_project(
 
   // Scan for files to determine language and project structure
   for (const dir of scanDirectories) {
-    const resolvedDir = path.resolve(dir);
+    // Resolve directory relative to project root, not current working directory
+    const resolvedDir = path.isAbsolute(dir)
+      ? dir
+      : path.join(projectRoot, dir);
+    const normalizedDir = path.resolve(resolvedDir);
+
+    // Ensure we don't scan outside the project root
+    // Use path.relative to check if directory is within project root
+    const relativePath = path.relative(projectRoot, normalizedDir);
+    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      console.warn(
+        `Skipping directory outside project root: ${dir} (resolved to ${normalizedDir})`
+      );
+      continue;
+    }
 
     try {
       // Find main source files
@@ -99,13 +137,14 @@ export async function analyze_project(
           "**/*.{html,css,scss,sass}",
         ],
         {
-          cwd: resolvedDir,
+          cwd: normalizedDir,
           ignore: ["**/node_modules/**", "**/dist/**", "**/build/**"],
+          absolute: false, // Return relative paths
         }
       );
 
       analysis.mainFiles.push(
-        ...sourceFiles.map((f) => path.join(resolvedDir, f))
+        ...sourceFiles.map((f) => path.join(normalizedDir, f))
       );
 
       // Determine primary language from file extensions
@@ -168,13 +207,14 @@ export async function analyze_project(
           "**/vue.config.*",
         ],
         {
-          cwd: resolvedDir,
+          cwd: normalizedDir,
           ignore: ["**/node_modules/**", "**/dist/**", "**/build/**"],
+          absolute: false, // Return relative paths
         }
       );
 
       analysis.configFiles.push(
-        ...configFiles.map((f) => path.join(resolvedDir, f))
+        ...configFiles.map((f) => path.join(normalizedDir, f))
       );
     } catch (error) {
       // Directory doesn't exist or can't be read, skip

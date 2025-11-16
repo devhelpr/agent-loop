@@ -3,7 +3,11 @@
 import { Command } from "commander";
 import { text, isCancel } from "@clack/prompts";
 import { runCodingAgent } from "./core/agent.js";
-import { initObservability, withSpan } from "./utils/observability.js";
+import {
+  initObservability,
+  withSpan,
+  shutdownObservability,
+} from "./utils/observability.js";
 import { AIProvider } from "./ai/ai-client.js";
 
 const program = new Command();
@@ -173,10 +177,11 @@ async function main() {
   // Set up configurable timeout if specified
   let timeoutId: NodeJS.Timeout | null = null;
   if (timeoutSeconds > 0) {
-    timeoutId = setTimeout(() => {
+    timeoutId = setTimeout(async () => {
       console.log(
         `⚠️  Process timeout after ${timeoutSeconds} seconds - forcing exit`
       );
+      await shutdownObservability();
       process.exit(0);
     }, timeoutSeconds * 1000);
   }
@@ -204,7 +209,8 @@ async function main() {
     console.log("\n✅ Agent completed successfully!");
     console.log("📊 Final result:", result);
 
-    // Force exit immediately to ensure the process terminates
+    // Shutdown observability to flush traces before exit
+    await shutdownObservability();
     process.exit(0);
   } catch (error) {
     // Clear timeout on error
@@ -212,23 +218,29 @@ async function main() {
       clearTimeout(timeoutId);
     }
     console.error("\n❌ Agent execution failed:", error);
+    
+    // Shutdown observability to flush traces even on error
+    await shutdownObservability();
     process.exit(1);
   }
 }
 
 // Handle uncaught errors
-process.on("uncaughtException", (error) => {
+process.on("uncaughtException", async (error) => {
   console.error("❌ Uncaught Exception:", error);
+  await shutdownObservability();
   process.exit(1);
 });
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", async (reason, promise) => {
   console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+  await shutdownObservability();
   process.exit(1);
 });
 
 // Run the CLI
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("❌ CLI execution failed:", error);
+  await shutdownObservability();
   process.exit(1);
 });

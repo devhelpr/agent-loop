@@ -243,19 +243,29 @@ agent-loop --prompt "Create a simple script" --provider ollama --model granite4:
 - `AGENT_FILE_LOGGING=true` : Enable file logging (default: false)
 - `AGENT_LOG_FILE=path/to/log` : Log file path (default: agent-log.txt)
 
-### Observability (Optional, Grafana-ready):
-- `GRAFANA_OBS_ENABLED=true` : Enable OpenTelemetry-based observability (default: disabled)
-- `SERVICE_NAME=agent-loop` : Service name for traces/metrics
-- `GRAFANA_PROM_PORT=9464` : Prometheus exporter port (default: 9464)
-- `GRAFANA_PROM_ENDPOINT=/metrics` : Prometheus endpoint path (default: /metrics)
-- `GRAFANA_OTLP_TRACES_URL=https://<otlp-endpoint>/v1/traces` : OTLP HTTP traces endpoint
-- `GRAFANA_API_KEY=<token>` : Grafana API key to use for OTLP Authorization header
-- `GRAFANA_OTLP_AUTH_SCHEME=Bearer` : Auth scheme for the Authorization header (default: Bearer)
-- `GRAFANA_OTLP_HEADERS` : Extra headers to send with OTLP requests. JSON or comma-separated `key=value` pairs. If both this and `GRAFANA_API_KEY` are provided, and `Authorization` is not set here, an `Authorization: <scheme> <key>` header will be added automatically.
+### Observability (Optional, Jaeger-ready):
+- `JAEGER_OBS_ENABLED=true` : Enable OpenTelemetry-based observability (default: disabled)
+- `SERVICE_NAME=agent-loop` : Service name for traces
+- `JAEGER_OTLP_TRACES_URL=http://localhost:4318/v1/traces` : OTLP HTTP traces endpoint (default: http://localhost:4318/v1/traces)
+- `JAEGER_ENDPOINT` : Alternative to JAEGER_OTLP_TRACES_URL (will be converted to OTLP format)
+
+**Note**: Metrics are currently disabled. Only traces are exported to Jaeger using OTLP (OpenTelemetry Protocol).
+
+**Legacy Support (deprecated):**
+- The following environment variables are still supported for backward compatibility but are deprecated:
+  - `GRAFANA_OBS_ENABLED` (use `JAEGER_OBS_ENABLED` instead)
+  - `JAEGER_OTLP_TRACES_URL` or `GRAFANA_OTLP_TRACES_URL` (use `JAEGER_ENDPOINT` instead)
+  - `GRAFANA_API_KEY`, `GRAFANA_INSTANCE_ID`, `GRAFANA_OTLP_AUTH_SCHEME` (not needed for local Jaeger)
 
 Notes:
-- Metrics are exposed locally at `http://localhost:<GRAFANA_PROM_PORT><GRAFANA_PROM_ENDPOINT>` for Prometheus scraping. Point Grafana to your Prometheus datasource.
-- Traces are exported to the OTLP HTTP endpoint if `GRAFANA_OTLP_TRACES_URL` is set. For Grafana Cloud, provide the correct headers via `GRAFANA_OTLP_HEADERS`.
+- **Jaeger Setup**: To use Jaeger, ensure it's running locally. You can start it with:
+  ```bash
+  docker run -d --name jaeger -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+  ```
+- **Jaeger UI**: Access the Jaeger UI at `http://localhost:16686` to view traces.
+- **Traces**: Traces are exported to Jaeger's OTLP HTTP endpoint at `http://localhost:4318/v1/traces` by default using the OTLP exporter (supports both Protobuf and JSON).
+- **Metrics**: Metrics are currently disabled. Only traces are exported to Jaeger.
+- **Authentication**: Local Jaeger typically doesn't require authentication.
 
 ### Provider Selection:
 You can specify which AI provider to use via CLI options:
