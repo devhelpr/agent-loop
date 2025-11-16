@@ -2,6 +2,10 @@ import { LogConfig, log } from "../utils/logging";
 import { generateObject, generateText, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { AIClient, AIProvider } from "./ai-client";
+import { planningPrompt } from "./prompts/planning";
+import { projectAnalysisPrompt } from "./prompts/project-analysis";
+import { PlanStep, ExecutionPlan } from "../tools/planning";
+import { ProjectAnalysis } from "../tools/project-analysis";
 
 // Global token tracking
 let totalInputTokens = 0;
@@ -81,6 +85,7 @@ interface ApiCallOptions {
   truncateTranscript?: boolean;
   provider?: AIProvider;
   model?: string;
+  span?: any; // OpenTelemetry span for tracing
 }
 
 export async function makeAICall(
@@ -183,6 +188,33 @@ export async function makeAICall(
         temperature: aiClient.getTemperature(),
       };
 
+      // Add detailed information to span if provided
+      if (options.span) {
+        const span = options.span;
+        span.setAttribute("ai.call.provider", aiClient.getProvider());
+        span.setAttribute("ai.call.model", aiClient.getModel());
+        span.setAttribute("ai.call.model_name", aiClient.getModelName());
+        span.setAttribute("ai.call.temperature", aiClient.getTemperature());
+        span.setAttribute("ai.call.max_output_tokens", 4000);
+        span.setAttribute("ai.call.message_count", generateObjectParams.messages.length);
+        span.setAttribute("ai.call.has_system_prompt", !!generateObjectParams.system);
+        if (generateObjectParams.system) {
+          span.setAttribute("ai.call.system_prompt_length", generateObjectParams.system.length);
+          span.setAttribute("ai.call.system_prompt", generateObjectParams.system.substring(0, 1000));
+        }
+        // Add user messages summary
+        const userMessagesSummary = userMessages.map((msg, idx) => ({
+          index: idx,
+          role: msg.role,
+          length: msg.content.length,
+          preview: msg.content.substring(0, 200),
+        }));
+        span.setAttribute("ai.call.user_messages_summary", JSON.stringify(userMessagesSummary));
+        span.setAttribute("ai.call.schema_info", getSchemaInfo(schema));
+        span.setAttribute("ai.call.attempt", attempt);
+        span.setAttribute("ai.call.max_retries", maxRetries);
+      }
+
       log(
         logConfig,
         "debug",
@@ -225,6 +257,15 @@ export async function makeAICall(
         const outputTokens = usage.outputTokens || 0;
         const totalTokens = usage.totalTokens || 0;
 
+        // Add token usage to span if provided
+        if (options.span) {
+          const span = options.span;
+          span.setAttribute("ai.call.tokens.input", inputTokens);
+          span.setAttribute("ai.call.tokens.output", outputTokens);
+          span.setAttribute("ai.call.tokens.total", totalTokens);
+          span.setAttribute("ai.call.success", true);
+        }
+
         // Update global counters
         totalInputTokens += inputTokens;
         totalOutputTokens += outputTokens;
@@ -261,6 +302,15 @@ export async function makeAICall(
         );
       }
 
+      // Add response information to span if provided
+      if (options.span && response.object) {
+        const span = options.span;
+        const responseContent = JSON.stringify(response.object);
+        span.setAttribute("ai.call.response.length", responseContent.length);
+        span.setAttribute("ai.call.response.preview", responseContent.substring(0, 1000));
+        span.setAttribute("ai.call.has_response", true);
+      }
+
       // Return response in OpenAI-compatible format for backward compatibility
       return {
         choices: [
@@ -281,6 +331,17 @@ export async function makeAICall(
       };
     } catch (error) {
       const errorMsg = String(error);
+
+      // Add error information to span if provided
+      if (options.span) {
+        const span = options.span;
+        span.setAttribute("ai.call.success", false);
+        span.setAttribute("ai.call.error.message", errorMsg);
+        span.setAttribute("ai.call.error.attempt", attempt);
+        if (error instanceof Error) {
+          span.recordException?.(error);
+        }
+      }
 
       // Enhanced error logging for schema validation failures
       if (NoObjectGeneratedError.isInstance(error)) {
@@ -470,115 +531,203 @@ function repairMalformedJSON(text: string): string {
   }
 }
 
-// Backward compatibility function
-export async function makeOpenAICall(
+// Generic AI call function with schema validation
+export async function makeAICallWithSchema(
   messages: Array<{ role: string; content: string }>,
-  schema: any,
+  schema: z.ZodSchema,
   logConfig: LogConfig,
   options: ApiCallOptions = {}
 ) {
-  // Convert JSON schema to Zod schema if needed
-  let zodSchema: z.ZodSchema;
-
-  if (schema && typeof schema === "object") {
-    // Handle nested schema structure (like DecisionSchema)
-    const actualSchema = schema.schema || schema;
-
-    if (actualSchema && actualSchema.type === "object") {
-      // Convert JSON schema to Zod schema
-      zodSchema = convertJsonSchemaToZod(actualSchema);
-    } else if (schema && typeof schema.parse === "function") {
-      // Already a Zod schema
-      zodSchema = schema;
-    } else {
-      // Fallback to any object
-      zodSchema = z.any();
-    }
-  } else if (schema && typeof schema.parse === "function") {
-    // Already a Zod schema
-    zodSchema = schema;
-  } else {
-    // Fallback to any object
-    zodSchema = z.any();
-  }
-
-  return makeAICall(messages, zodSchema, logConfig, {
+  return makeAICall(messages, schema, logConfig, {
     ...options,
     provider: options.provider || "openai",
   });
 }
 
-// Helper function to convert JSON schema to Zod schema
-function convertJsonSchemaToZod(jsonSchema: any): z.ZodSchema {
-  if (!jsonSchema || typeof jsonSchema !== "object") {
-    return z.any();
+// Planning API call function
+export async function createPlanWithAI(
+  userGoal: string,
+  projectContext?: string,
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ExecutionPlan> {
+  const planStepSchema = z.object({
+    step: z.string().describe("Clear description of the step to be executed"),
+    required: z
+      .boolean()
+      .describe("Whether this step is required to achieve the user's goal"),
+    dependencies: z
+      .array(z.string())
+      .optional()
+      .describe("Array of step IDs that must be completed before this step"),
+  });
+
+  const planningSchema = z.object({
+    steps: z
+      .array(planStepSchema)
+      .describe("Array of plan steps in execution order"),
+    projectContext: z
+      .string()
+      .optional()
+      .describe("Summary of project context and technology stack"),
+    userGoal: z.string().describe("The user's goal that this plan addresses"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: planningPrompt,
+    },
+    {
+      role: "user",
+      content: `Create a structured execution plan for the following goal:
+
+**User Goal:** ${userGoal}
+
+${projectContext ? `**Project Context:** ${projectContext}` : ""}
+
+Please analyze this goal and create a detailed, executable plan with clear steps, dependencies, and priorities. Focus on breaking down complex tasks into manageable, sequential steps.`,
+    },
+  ];
+
+  log(logConfig, "planning", "Creating AI-generated execution plan", {
+    userGoal,
+    hasProjectContext: !!projectContext,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    planningSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI planning call");
   }
 
-  if (jsonSchema.type === "object" && jsonSchema.properties) {
-    const shape: Record<string, z.ZodSchema> = {};
+  const planData = JSON.parse(response.choices[0].message.content);
 
-    for (const [key, prop] of Object.entries(jsonSchema.properties)) {
-      const propSchema = prop as any;
-      let zodProp: z.ZodSchema;
+  // Convert to ExecutionPlan format
+  const executionPlan: ExecutionPlan = {
+    steps: planData.steps,
+    projectContext: planData.projectContext || projectContext,
+    createdAt: new Date(),
+    userGoal: planData.userGoal || userGoal,
+  };
 
-      switch (propSchema.type) {
-        case "string":
-          if (propSchema.enum) {
-            zodProp = z.enum(propSchema.enum);
-          } else {
-            zodProp = z.string();
-          }
-          break;
-        case "number":
-          zodProp = z.number();
-          break;
-        case "boolean":
-          zodProp = z.boolean();
-          break;
-        case "array":
-          if (propSchema.items) {
-            const itemSchema = convertJsonSchemaToZod(propSchema.items);
-            zodProp = z.array(itemSchema);
-          } else {
-            zodProp = z.array(z.any());
-          }
-          break;
-        case "object":
-          zodProp = convertJsonSchemaToZod(propSchema);
-          break;
-        default:
-          zodProp = z.any();
-      }
+  log(logConfig, "planning", "AI-generated plan created successfully", {
+    stepCount: executionPlan.steps.length,
+    requiredSteps: executionPlan.steps.filter((s) => s.required).length,
+    optionalSteps: executionPlan.steps.filter((s) => !s.required).length,
+  });
 
-      // Make tool_input optional to be more permissive with schema validation
-      // The actual validation is handled by validateDecision function in agent.ts
-      if (key === "tool_input") {
-        shape[key] = zodProp.optional();
-      } else if (jsonSchema.required && jsonSchema.required.includes(key)) {
-        shape[key] = zodProp;
-      } else {
-        shape[key] = zodProp.optional();
-      }
-    }
+  return executionPlan;
+}
 
-    return z
-      .object(shape)
-      .describe(
-        `JSON Schema converted to Zod: ${jsonSchema.title || "Object"}`
-      );
+// Project Analysis API call function
+export async function analyzeProjectWithAI(
+  scanDirectories: string[],
+  projectFiles: string[],
+  logConfig: LogConfig = { enabled: true, logSteps: true },
+  options: ApiCallOptions = {}
+): Promise<ProjectAnalysis> {
+  const projectAnalysisSchema = z.object({
+    language: z.string().describe("Primary programming language detected"),
+    projectType: z
+      .enum(["node", "browser", "library", "unknown"])
+      .describe("Type of project"),
+    buildTools: z
+      .array(z.string())
+      .describe("Build tools and bundlers detected"),
+    testFramework: z
+      .string()
+      .optional()
+      .describe("Testing framework if detected"),
+    packageManager: z.string().optional().describe("Package manager used"),
+    hasTypeScript: z.boolean().describe("Whether TypeScript is used"),
+    hasReact: z.boolean().describe("Whether React is used"),
+    hasVue: z.boolean().describe("Whether Vue is used"),
+    hasAngular: z.boolean().describe("Whether Angular is used"),
+    mainFiles: z.array(z.string()).describe("Key source files found"),
+    configFiles: z.array(z.string()).describe("Configuration files found"),
+    dependencies: z
+      .record(z.string(), z.string())
+      .describe("Production dependencies"),
+    devDependencies: z
+      .record(z.string(), z.string())
+      .describe("Development dependencies"),
+    architecture: z
+      .string()
+      .optional()
+      .describe("Architectural patterns detected"),
+    recommendations: z
+      .array(z.string())
+      .optional()
+      .describe("Recommendations for improvements"),
+  });
+
+  const messages = [
+    {
+      role: "system",
+      content: projectAnalysisPrompt,
+    },
+    {
+      role: "user",
+      content: `Analyze the following project structure:
+
+**Scan Directories:** ${scanDirectories.join(", ")}
+
+**Project Files Found:** ${projectFiles.join(", ")}
+
+Please provide a comprehensive analysis of this project's technology stack, structure, dependencies, and architecture. Focus on identifying key technologies, patterns, and providing actionable insights.`,
+    },
+  ];
+
+  log(logConfig, "project-analysis", "Performing AI-powered project analysis", {
+    scanDirectories,
+    fileCount: projectFiles.length,
+    provider: options.provider || "openai",
+  });
+
+  const response = await makeAICall(
+    messages,
+    projectAnalysisSchema,
+    logConfig,
+    options
+  );
+
+  if (!response.choices?.[0]?.message?.content) {
+    throw new Error("No content received from AI project analysis call");
   }
 
-  // Handle other types
-  switch (jsonSchema.type) {
-    case "string":
-      return z.string();
-    case "number":
-      return z.number();
-    case "boolean":
-      return z.boolean();
-    case "array":
-      return z.array(z.any());
-    default:
-      return z.any();
-  }
+  const analysisData = JSON.parse(response.choices[0].message.content);
+
+  // Convert to ProjectAnalysis format
+  const projectAnalysis: ProjectAnalysis = {
+    language: analysisData.language,
+    projectType: analysisData.projectType,
+    buildTools: analysisData.buildTools,
+    testFramework: analysisData.testFramework,
+    packageManager: analysisData.packageManager,
+    hasTypeScript: analysisData.hasTypeScript,
+    hasReact: analysisData.hasReact,
+    hasVue: analysisData.hasVue,
+    hasAngular: analysisData.hasAngular,
+    mainFiles: analysisData.mainFiles,
+    configFiles: analysisData.configFiles,
+    dependencies: analysisData.dependencies,
+    devDependencies: analysisData.devDependencies,
+  };
+
+  log(logConfig, "project-analysis", "AI-powered project analysis completed", {
+    language: projectAnalysis.language,
+    projectType: projectAnalysis.projectType,
+    buildToolsCount: projectAnalysis.buildTools.length,
+    hasTypeScript: projectAnalysis.hasTypeScript,
+    hasReact: projectAnalysis.hasReact,
+  });
+
+  return projectAnalysis;
 }

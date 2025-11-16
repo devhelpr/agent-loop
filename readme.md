@@ -6,6 +6,8 @@ This project is a simple coding agent implemented with an Agent Loop architectur
 
 It runs AI LLM calls in a loop using Vercel's AI SDK v5 and depending on the response, it can read files, search the repo, write patches, run commands, and evaluate work quality. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
 
+It has OpenTelemetry-based observability for tracing using Jaeger.
+
 ## Supported AI Providers
 
 The agent supports multiple AI providers through Vercel's AI SDK v5:
@@ -144,6 +146,16 @@ flowchart TD
 
 Install globally to use from anywhere on your system:
 
+**Option 1: Using the install-global script (recommended)**
+
+```bash
+npm run install-global
+```
+
+This will build the project and install it globally in one step.
+
+**Option 2: Manual installation**
+
 ```bash
 npm install -g .
 ```
@@ -154,9 +166,7 @@ If you need extra permissions, then:
 chmod +x <path>/agent-loop/dist/src/cli.js
 ```
 
-Then you can run it with:
-
-Or use directly without installation:
+**Option 3: Use directly without installation**
 
 ```bash
 npx agent-loop
@@ -235,6 +245,23 @@ agent-loop --prompt "Create a simple script" --provider ollama --model granite4:
 - `AGENT_FILE_LOGGING=true` : Enable file logging (default: false)
 - `AGENT_LOG_FILE=path/to/log` : Log file path (default: agent-log.txt)
 
+### Observability (Optional, Jaeger-ready):
+- `JAEGER_OBS_ENABLED=true` : Enable OpenTelemetry-based observability (default: disabled)
+- `SERVICE_NAME=agent-loop` : Service name for traces
+- `JAEGER_OTLP_TRACES_URL=http://localhost:4318/v1/traces` : OTLP HTTP traces endpoint (default: http://localhost:4318/v1/traces)
+- `JAEGER_ENDPOINT` : Alternative to JAEGER_OTLP_TRACES_URL (will be converted to OTLP format)
+
+**Note**: Metrics are currently disabled. Only traces are exported to Jaeger using OTLP (OpenTelemetry Protocol).
+
+Notes:
+- **Jaeger Setup**: To use Jaeger, ensure it's running locally. You can start it with:
+  ```bash
+  docker run -d --name jaeger -p 16686:16686 -p 4318:4318 jaegertracing/all-in-one:latest
+  ```
+- **Jaeger UI**: Access the Jaeger UI at `http://localhost:16686` to view traces.
+- **Traces**: Traces are exported to Jaeger's OTLP HTTP endpoint at `http://localhost:4318/v1/traces` by default using the OTLP exporter (supports both Protobuf and JSON).
+- **Metrics**: Metrics are currently disabled. Only traces are exported to Jaeger.
+
 ### Provider Selection:
 You can specify which AI provider to use via CLI options:
 - `--provider openai` : Use OpenAI (default)
@@ -248,6 +275,17 @@ You can specify which AI provider to use via CLI options:
 ```bash
 npm install
 npm start
+```
+
+## Install and run Jaeger
+```bash
+docker run --rm --name jaeger \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 5778:5778 \
+  -p 9411:9411 \
+  cr.jaegertracing.io/jaegertracing/jaeger:2.11.0
 ```
 
 ## What did I learn?

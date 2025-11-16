@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { recordErrorSpan } from "./observability";
 
 export interface LogConfig {
   enabled: boolean;
@@ -140,7 +141,7 @@ export function log(
 }
 
 // Convenience function for logging errors
-export function logError(
+export async function logError(
   config: LogConfig,
   message: string,
   error: unknown,
@@ -168,14 +169,20 @@ export function logError(
   };
 
   log(config, "error", message, errorData);
+
+  // Also record as a span for observability
+  await recordErrorSpan(error, message.replace(/\s+/g, "_").toLowerCase(), {
+    "error.log_message": message,
+    ...additionalData,
+  });
 }
 
 // Convenience function for logging caught exceptions
-export function logException(
+export async function logException(
   config: LogConfig,
   context: string,
   error: unknown,
   additionalData?: any
 ) {
-  logError(config, `Exception in ${context}`, error, additionalData);
+  await logError(config, `Exception in ${context}`, error, additionalData);
 }

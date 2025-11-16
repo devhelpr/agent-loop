@@ -11,6 +11,7 @@ list of actions:
 - run_cmd
 - write_patch
 - evaluate_work
+- create_plan
 - final_answer
 
 AVAILABLE ACTIONS AND FORMATS:
@@ -54,7 +55,7 @@ AVAILABLE ACTIONS AND FORMATS:
   "rationale": "Evaluating the styling and structure"
 }
 
-5. final_answer - Complete the task:
+7. final_answer - Complete the task:
 {
   "action": "final_answer",
   "rationale": "Task completed successfully"

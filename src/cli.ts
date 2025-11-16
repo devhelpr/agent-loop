@@ -3,6 +3,11 @@
 import { Command } from "commander";
 import { text, isCancel } from "@clack/prompts";
 import { runCodingAgent } from "./core/agent.js";
+import {
+  initObservability,
+  withSpan,
+  shutdownObservability,
+} from "./utils/observability.js";
 import { AIProvider } from "./ai/ai-client.js";
 
 const program = new Command();
@@ -54,6 +59,8 @@ program
 
 async function main() {
   const options = program.opts();
+  // Initialize optional observability (no-op if disabled or deps missing)
+  await initObservability({ serviceName: "agent-loop-cli" });
 
   // Check for AI provider API key
   const provider = options.provider as AIProvider;
@@ -66,6 +73,18 @@ async function main() {
 
   const requiredEnvVar = requiredEnvVars[provider];
   if (requiredEnvVar && !process.env[requiredEnvVar]) {
+    const error = new Error(`${requiredEnvVar} environment variable is not set`);
+    
+    // Record as error span before exiting
+    const { recordErrorSpan, getJaegerEndpoint } = await import("./utils/observability");
+    const jaegerEndpoint = getJaegerEndpoint() || "http://localhost:4318/v1/traces";
+    await recordErrorSpan(error, "missing_api_key", {
+      error_type: "missing_api_key",
+      provider,
+      required_env_var: requiredEnvVar,
+      jaeger_endpoint: jaegerEndpoint,
+    });
+    
     console.error(
       `❌ Error: ${requiredEnvVar} environment variable is not set`
     );
@@ -76,6 +95,9 @@ async function main() {
     console.log('  - Anthropic: export ANTHROPIC_API_KEY="your-key"');
     console.log('  - Google: export GOOGLE_API_KEY="your-key"');
     console.log("  - Ollama: No API key required (runs locally)");
+    
+    // Shutdown observability to flush the error span
+    await shutdownObservability();
     process.exit(1);
   }
 
@@ -170,25 +192,39 @@ async function main() {
   // Set up configurable timeout if specified
   let timeoutId: NodeJS.Timeout | null = null;
   if (timeoutSeconds > 0) {
-    timeoutId = setTimeout(() => {
+    timeoutId = setTimeout(async () => {
       console.log(
         `⚠️  Process timeout after ${timeoutSeconds} seconds - forcing exit`
       );
+      await shutdownObservability();
       process.exit(0);
     }, timeoutSeconds * 1000);
   }
 
   try {
-    const result = await runCodingAgent(userPrompt, {
-      maxSteps,
-      hardCaps: {
-        maxWrites,
-        maxCmds: maxCommands,
-      },
-      testCommand,
-      logging,
-      aiProvider: provider,
-      aiModel: options.model,
+    const result = await withSpan("agent.cli.run", async (span) => {
+      if (span) {
+        span.setAttribute("agent.cli.user_prompt", userPrompt.substring(0, 500));
+        span.setAttribute("agent.cli.user_prompt_length", userPrompt.length);
+        span.setAttribute("agent.cli.max_steps", maxSteps);
+        span.setAttribute("agent.cli.max_writes", maxWrites);
+        span.setAttribute("agent.cli.max_commands", maxCommands);
+        span.setAttribute("agent.cli.provider", provider);
+        span.setAttribute("agent.cli.model", options.model || "default");
+        span.setAttribute("agent.cli.test_command", JSON.stringify(testCommand));
+        span.setAttribute("agent.cli.timeout_seconds", timeoutSeconds);
+      }
+      return await runCodingAgent(userPrompt, {
+        maxSteps,
+        hardCaps: {
+          maxWrites,
+          maxCmds: maxCommands,
+        },
+        testCommand,
+        logging,
+        aiProvider: provider,
+        aiModel: options.model,
+      });
     });
 
     // Clear timeout since we completed successfully
@@ -199,7 +235,8 @@ async function main() {
     console.log("\n✅ Agent completed successfully!");
     console.log("📊 Final result:", result);
 
-    // Force exit immediately to ensure the process terminates
+    // Shutdown observability to flush traces before exit
+    await shutdownObservability();
     process.exit(0);
   } catch (error) {
     // Clear timeout on error
@@ -207,23 +244,64 @@ async function main() {
       clearTimeout(timeoutId);
     }
     console.error("\n❌ Agent execution failed:", error);
+    
+    // Record as error span
+    const { recordErrorSpan } = await import("./utils/observability");
+    await recordErrorSpan(error, "agent_execution_failed", {
+      error_type: "agent_execution_failed",
+      user_prompt: userPrompt.substring(0, 200),
+    });
+    
+    // Shutdown observability to flush traces even on error
+    await shutdownObservability();
     process.exit(1);
   }
 }
 
 // Handle uncaught errors
-process.on("uncaughtException", (error) => {
+process.on("uncaughtException", async (error) => {
   console.error("❌ Uncaught Exception:", error);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(error, "uncaught_exception", {
+    error_type: "uncaught_exception",
+    process_pid: process.pid,
+  });
+  
+  await shutdownObservability();
   process.exit(1);
 });
 
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+process.on("unhandledRejection", async (reason, promise) => {
+  console.error("❌ Unhandled Rejection:", reason);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(
+    reason instanceof Error ? reason : new Error(String(reason)),
+    "unhandled_rejection",
+    {
+      error_type: "unhandled_rejection",
+      reason_type: typeof reason,
+      process_pid: process.pid,
+    }
+  );
+  
+  await shutdownObservability();
   process.exit(1);
 });
 
 // Run the CLI
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("❌ CLI execution failed:", error);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(error, "cli_execution_failed", {
+    error_type: "cli_execution_failed",
+  });
+  
+  await shutdownObservability();
   process.exit(1);
 });
