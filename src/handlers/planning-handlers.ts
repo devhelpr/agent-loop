@@ -4,7 +4,7 @@ import { create_plan, analyze_project } from "../tools";
 import { createPlanWithAI, analyzeProjectWithAI } from "../ai/api-calls";
 import { MessageArray } from "../types/handlers";
 import { AIProvider } from "../ai/ai-client";
-import { withSpan } from "../utils/observability";
+import { withSpan, recordErrorSpan } from "../utils/observability";
 
 export async function handleCreatePlan(
   decision: Decision,
@@ -81,6 +81,12 @@ export async function handleCreatePlan(
     log(logConfig, "tool-error", "create_plan failed", {
       error: String(error),
       planSteps: decision.tool_input.plan_steps,
+    });
+
+    await recordErrorSpan(error, "create_plan", {
+      tool: "create_plan",
+      planSteps: decision.tool_input.plan_steps,
+      hasProjectContext: !!decision.tool_input.project_context,
     });
 
     // Return a default plan when creation fails
@@ -216,6 +222,12 @@ export async function handleAnalyzeProject(
       scanDirectories: decision.tool_input.scan_directories,
     });
 
+    await recordErrorSpan(error, "analyze_project", {
+      tool: "analyze_project",
+      scanDirectories: decision.tool_input.scan_directories,
+      mode: "ai_powered",
+    });
+
     // Fall back to basic analysis if AI analysis fails
     try {
       log(logConfig, "project-analysis", "Falling back to basic analysis", {
@@ -239,6 +251,12 @@ export async function handleAnalyzeProject(
     } catch (fallbackError) {
       log(logConfig, "tool-error", "Basic analyze_project also failed", {
         error: String(fallbackError),
+      });
+
+      await recordErrorSpan(fallbackError, "analyze_project_fallback", {
+        tool: "analyze_project",
+        scanDirectories: decision.tool_input.scan_directories,
+        mode: "fallback_basic",
       });
 
       // Return a default analysis when both fail

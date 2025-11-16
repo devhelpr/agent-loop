@@ -2,7 +2,7 @@ import { Decision } from "../types/decision";
 import { LogConfig, log } from "../utils/logging";
 import { evaluate_work } from "../tools";
 import { MessageArray } from "../types/handlers";
-import { withSpan } from "../utils/observability";
+import { withSpan, recordErrorSpan } from "../utils/observability";
 
 export async function handleEvaluateWork(
   decision: Decision,
@@ -61,6 +61,12 @@ export async function handleEvaluateWork(
     log(logConfig, "tool-error", "evaluate_work failed", {
       error: String(error),
       files: decision.tool_input.files,
+    });
+
+    await recordErrorSpan(error, "evaluate_work", {
+      tool: "evaluate_work",
+      files: decision.tool_input.files,
+      criteria: decision.tool_input.criteria,
     });
 
     // Return a default evaluation result when evaluation fails

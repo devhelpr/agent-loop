@@ -3,7 +3,7 @@ import { LogConfig, log } from "../utils/logging";
 import { read_files, write_patch } from "../tools";
 import { validatorRegistry } from "../tools/validation";
 import { MessageArray } from "../types/handlers";
-import { withSpan } from "../utils/observability";
+import { withSpan, recordErrorSpan } from "../utils/observability";
 
 export async function handleReadFiles(
   decision: Decision,
@@ -224,6 +224,10 @@ IMPORTANT: These errors need to be fixed. Consider using write_patch to correct 
           log(logConfig, "validation", "File validation failed", {
             file: filePath,
             error: String(validationError),
+          });
+          await recordErrorSpan(validationError, "file_validation", {
+            file: filePath,
+            tool: "write_patch",
           });
         }
       }

@@ -73,6 +73,18 @@ async function main() {
 
   const requiredEnvVar = requiredEnvVars[provider];
   if (requiredEnvVar && !process.env[requiredEnvVar]) {
+    const error = new Error(`${requiredEnvVar} environment variable is not set`);
+    
+    // Record as error span before exiting
+    const { recordErrorSpan, getJaegerEndpoint } = await import("./utils/observability");
+    const jaegerEndpoint = getJaegerEndpoint() || "http://localhost:4318/v1/traces";
+    await recordErrorSpan(error, "missing_api_key", {
+      error_type: "missing_api_key",
+      provider,
+      required_env_var: requiredEnvVar,
+      jaeger_endpoint: jaegerEndpoint,
+    });
+    
     console.error(
       `❌ Error: ${requiredEnvVar} environment variable is not set`
     );
@@ -83,6 +95,9 @@ async function main() {
     console.log('  - Anthropic: export ANTHROPIC_API_KEY="your-key"');
     console.log('  - Google: export GOOGLE_API_KEY="your-key"');
     console.log("  - Ollama: No API key required (runs locally)");
+    
+    // Shutdown observability to flush the error span
+    await shutdownObservability();
     process.exit(1);
   }
 
@@ -230,6 +245,13 @@ async function main() {
     }
     console.error("\n❌ Agent execution failed:", error);
     
+    // Record as error span
+    const { recordErrorSpan } = await import("./utils/observability");
+    await recordErrorSpan(error, "agent_execution_failed", {
+      error_type: "agent_execution_failed",
+      user_prompt: userPrompt.substring(0, 200),
+    });
+    
     // Shutdown observability to flush traces even on error
     await shutdownObservability();
     process.exit(1);
@@ -239,12 +261,33 @@ async function main() {
 // Handle uncaught errors
 process.on("uncaughtException", async (error) => {
   console.error("❌ Uncaught Exception:", error);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(error, "uncaught_exception", {
+    error_type: "uncaught_exception",
+    process_pid: process.pid,
+  });
+  
   await shutdownObservability();
   process.exit(1);
 });
 
 process.on("unhandledRejection", async (reason, promise) => {
-  console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+  console.error("❌ Unhandled Rejection:", reason);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(
+    reason instanceof Error ? reason : new Error(String(reason)),
+    "unhandled_rejection",
+    {
+      error_type: "unhandled_rejection",
+      reason_type: typeof reason,
+      process_pid: process.pid,
+    }
+  );
+  
   await shutdownObservability();
   process.exit(1);
 });
@@ -252,6 +295,13 @@ process.on("unhandledRejection", async (reason, promise) => {
 // Run the CLI
 main().catch(async (error) => {
   console.error("❌ CLI execution failed:", error);
+  
+  // Record as error span
+  const { recordErrorSpan } = await import("./utils/observability");
+  await recordErrorSpan(error, "cli_execution_failed", {
+    error_type: "cli_execution_failed",
+  });
+  
   await shutdownObservability();
   process.exit(1);
 });

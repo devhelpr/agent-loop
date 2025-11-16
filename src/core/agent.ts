@@ -18,7 +18,7 @@ import {
 } from "../ai/api-calls";
 import { prompt } from "../ai/prompts";
 import { AIProvider } from "../ai/ai-client";
-import { withSpan } from "../utils/observability";
+import { withSpan, recordErrorSpan } from "../utils/observability";
 
 // Validation function to ensure decision structure is correct
 function validateDecision(parsed: any): Decision | null {
@@ -251,7 +251,7 @@ When ready to speak to the user, choose final_answer.
         return result;
       });
     } catch (error) {
-      logError(logConfig, "AI API call failed after all retries", error);
+      await logError(logConfig, "AI API call failed after all retries", error);
 
       // Get token statistics even on error
       const tokenStats = getTokenStats();
@@ -259,7 +259,7 @@ When ready to speak to the user, choose final_answer.
       // Display token summary even on error
       displayTokenSummary(tokenStats);
 
-      // Error is already recorded by withSpan's error handling
+      // Error is already recorded by withSpan's error handling and logError
       // Add error info to agent.run span via a nested span
       await withSpan("agent.error", async (errorSpan) => {
         if (errorSpan) {
@@ -351,11 +351,18 @@ When ready to speak to the user, choose final_answer.
         }
       }
     } catch (error) {
-      logError(logConfig, "Failed to parse LLM response as JSON", error, {
+      await logError(logConfig, "Failed to parse LLM response as JSON", error, {
         rawContent:
           rawContent.substring(0, 500) + (rawContent.length > 500 ? "..." : ""),
         contentLength: rawContent.length,
       });
+      
+      await recordErrorSpan(error, "parse_llm_response", {
+        step,
+        contentLength: rawContent.length,
+        rawContentPreview: rawContent.substring(0, 500),
+      });
+      
       // Default to final_answer if parsing fails
       decision = {
         action: "final_answer",
@@ -438,11 +445,17 @@ When ready to speak to the user, choose final_answer.
           return result;
         });
       } catch (summaryError) {
-        logError(
+        await logError(
           logConfig,
           "Failed to generate summary, using default",
           summaryError
         );
+        
+        await recordErrorSpan(summaryError, "generate_summary", {
+          step,
+          tool: "ai.summary",
+        });
+        
         return {
           steps: step,
           message: `Task completed in ${step} steps. Summary generation failed, but agent finished execution.`,

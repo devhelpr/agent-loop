@@ -18,6 +18,11 @@ let metricExporter: any = null;
 let savedOtlpHeaders: Record<string, string> = {};
 let savedJaegerEndpoint: string = "";
 
+// Export function to get the saved Jaeger endpoint
+export function getJaegerEndpoint(): string {
+  return savedJaegerEndpoint;
+}
+
 function parseHeaders(input?: string): Record<string, string> | undefined {
   if (!input) return undefined;
   try {
@@ -520,6 +525,10 @@ export async function withSpan<T>(
           "error.message",
           e instanceof Error ? e.message : String(e)
         );
+        span.setAttribute("error.type", e instanceof Error ? e.name : typeof e);
+        if (e instanceof Error && e.stack) {
+          span.setAttribute("error.stack", e.stack);
+        }
         span.end();
         throw e;
       }
@@ -533,6 +542,63 @@ export async function withSpan<T>(
     );
     // Still execute the function even if span creation failed
     return await fn();
+  }
+}
+
+/**
+ * Record an error as a span for observability
+ * This should be called whenever an error occurs that needs to be traced
+ */
+export async function recordErrorSpan(
+  error: unknown,
+  context: string,
+  additionalAttributes?: Record<string, any>
+): Promise<void> {
+  if (!tracer || !initialized) {
+    return;
+  }
+
+  try {
+    await tracer.startActiveSpan(`error.${context}`, async (span: any) => {
+      span.setAttribute("error.type", "error_span");
+      span.setAttribute("error.context", context);
+      
+      if (error instanceof Error) {
+        span.setAttribute("error.name", error.name);
+        span.setAttribute("error.message", error.message);
+        if (error.stack) {
+          span.setAttribute("error.stack", error.stack);
+        }
+        if ("cause" in error && error.cause) {
+          span.setAttribute("error.cause", String(error.cause));
+        }
+        span.recordException?.(error);
+      } else {
+        span.setAttribute("error.value", String(error));
+        span.setAttribute("error.value_type", typeof error);
+      }
+
+      // Add any additional attributes
+      if (additionalAttributes) {
+        for (const [key, value] of Object.entries(additionalAttributes)) {
+          try {
+            if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+              span.setAttribute(key, value);
+            } else {
+              span.setAttribute(key, JSON.stringify(value));
+            }
+          } catch {
+            // Skip attributes that can't be serialized
+          }
+        }
+      }
+
+      span.setAttribute("success", false);
+      span.end();
+    });
+  } catch (spanError) {
+    // Silently fail - don't break the application if span creation fails
+    console.warn(`Failed to create error span for ${context}:`, spanError);
   }
 }
 
