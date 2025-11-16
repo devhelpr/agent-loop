@@ -253,9 +253,8 @@ agent-loop --prompt "Create a simple script" --provider ollama --model granite4:
 
 **Legacy Support (deprecated):**
 - The following environment variables are still supported for backward compatibility but are deprecated:
-  - `GRAFANA_OBS_ENABLED` (use `JAEGER_OBS_ENABLED` instead)
-  - `JAEGER_OTLP_TRACES_URL` or `GRAFANA_OTLP_TRACES_URL` (use `JAEGER_ENDPOINT` instead)
-  - `GRAFANA_API_KEY`, `GRAFANA_INSTANCE_ID`, `GRAFANA_OTLP_AUTH_SCHEME` (not needed for local Jaeger)
+  - `JAEGER_OBS_ENABLED`
+  - `JAEGER_OTLP_TRACES_URL` or `JAEGER_ENDPOINT`
 
 Notes:
 - **Jaeger Setup**: To use Jaeger, ensure it's running locally. You can start it with:
@@ -280,6 +279,17 @@ You can specify which AI provider to use via CLI options:
 ```bash
 npm install
 npm start
+```
+
+## Install and run Jaeger
+```bash
+docker run --rm --name jaeger \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  -p 5778:5778 \
+  -p 9411:9411 \
+  cr.jaegertracing.io/jaegertracing/jaeger:2.11.0
 ```
 
 ## What did I learn?
