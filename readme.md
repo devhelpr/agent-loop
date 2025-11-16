@@ -23,10 +23,9 @@ You can switch between providers using the `--provider` CLI option or by setting
 
 - **Planning Phase**: Automatically analyzes project structure at startup and creates execution plans for complex tasks
 - **Manual Tool Calls**: Uses manual tool calls instead of OpenAI function calling for more control
-- **Dual Patch Formats**: Supports both full-file patches (for new files) and unified diff patches (for incremental improvements)
+- **Full-File Patches**: Uses full-file format for all file modifications (complete file content replacement)
 - **Work Evaluation**: Built-in evaluation tool that analyzes created files and provides structured feedback with scores, strengths, improvements, and specific suggestions
-- **Diff Parsing**: Unified diff patch parsing with comprehensive error handling
-- **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with diff patches → re-evaluate
+- **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with full-file patches → re-evaluate
 - **Multi-Provider Support**: Seamlessly switch between OpenAI, Anthropic, Google, and Ollama providers
 - **Observability**: OpenTelemetry-based tracing with Jaeger integration for monitoring agent execution and debugging
 
@@ -34,7 +33,7 @@ You can switch between providers using the `--provider` CLI option or by setting
 
 1. **read_files**: Read and analyze existing files
 2. **search_repo**: Search the repository for patterns or content
-3. **write_patch**: Apply patches in unified diff format (preferred) or full-file format
+3. **write_patch**: Apply patches using full-file format (complete file content replacement)
 4. **run_cmd**: Execute shell commands
 5. **evaluate_work**: Analyze files and provide structured feedback for improvements
 6. **analyze_project**: Analyze project structure and context (automatically run at start)
