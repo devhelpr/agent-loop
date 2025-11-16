@@ -100,7 +100,6 @@ export async function initObservability(config?: ObservabilityConfig) {
 
   // Save endpoint for error messages in shutdown
   savedJaegerEndpoint = finalOtlpUrl;
-  console.log("savedJaegerEndpoint", savedJaegerEndpoint);
 
   try {
     const [
