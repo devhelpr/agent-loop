@@ -21,12 +21,14 @@ You can switch between providers using the `--provider` CLI option or by setting
 
 ## Key Features
 
+- **Planning Phase**: Automatically analyzes project structure at startup and creates execution plans for complex tasks
 - **Manual Tool Calls**: Uses manual tool calls instead of OpenAI function calling for more control
 - **Dual Patch Formats**: Supports both full-file patches (for new files) and unified diff patches (for incremental improvements)
 - **Work Evaluation**: Built-in evaluation tool that analyzes created files and provides structured feedback with scores, strengths, improvements, and specific suggestions
 - **Diff Parsing**: Unified diff patch parsing with comprehensive error handling
 - **Iterative Workflow**: Agent follows a structured workflow: create → evaluate → improve with diff patches → re-evaluate
 - **Multi-Provider Support**: Seamlessly switch between OpenAI, Anthropic, Google, and Ollama providers
+- **Observability**: OpenTelemetry-based tracing with Jaeger integration for monitoring agent execution and debugging
 
 ## Tools Available
 
