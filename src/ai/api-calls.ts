@@ -85,6 +85,7 @@ interface ApiCallOptions {
   truncateTranscript?: boolean;
   provider?: AIProvider;
   model?: string;
+  span?: any; // OpenTelemetry span for tracing
 }
 
 export async function makeAICall(
@@ -187,6 +188,33 @@ export async function makeAICall(
         temperature: aiClient.getTemperature(),
       };
 
+      // Add detailed information to span if provided
+      if (options.span) {
+        const span = options.span;
+        span.setAttribute("ai.call.provider", aiClient.getProvider());
+        span.setAttribute("ai.call.model", aiClient.getModel());
+        span.setAttribute("ai.call.model_name", aiClient.getModelName());
+        span.setAttribute("ai.call.temperature", aiClient.getTemperature());
+        span.setAttribute("ai.call.max_output_tokens", 4000);
+        span.setAttribute("ai.call.message_count", generateObjectParams.messages.length);
+        span.setAttribute("ai.call.has_system_prompt", !!generateObjectParams.system);
+        if (generateObjectParams.system) {
+          span.setAttribute("ai.call.system_prompt_length", generateObjectParams.system.length);
+          span.setAttribute("ai.call.system_prompt", generateObjectParams.system.substring(0, 1000));
+        }
+        // Add user messages summary
+        const userMessagesSummary = userMessages.map((msg, idx) => ({
+          index: idx,
+          role: msg.role,
+          length: msg.content.length,
+          preview: msg.content.substring(0, 200),
+        }));
+        span.setAttribute("ai.call.user_messages_summary", JSON.stringify(userMessagesSummary));
+        span.setAttribute("ai.call.schema_info", getSchemaInfo(schema));
+        span.setAttribute("ai.call.attempt", attempt);
+        span.setAttribute("ai.call.max_retries", maxRetries);
+      }
+
       log(
         logConfig,
         "debug",
@@ -229,6 +257,15 @@ export async function makeAICall(
         const outputTokens = usage.outputTokens || 0;
         const totalTokens = usage.totalTokens || 0;
 
+        // Add token usage to span if provided
+        if (options.span) {
+          const span = options.span;
+          span.setAttribute("ai.call.tokens.input", inputTokens);
+          span.setAttribute("ai.call.tokens.output", outputTokens);
+          span.setAttribute("ai.call.tokens.total", totalTokens);
+          span.setAttribute("ai.call.success", true);
+        }
+
         // Update global counters
         totalInputTokens += inputTokens;
         totalOutputTokens += outputTokens;
@@ -265,6 +302,15 @@ export async function makeAICall(
         );
       }
 
+      // Add response information to span if provided
+      if (options.span && response.object) {
+        const span = options.span;
+        const responseContent = JSON.stringify(response.object);
+        span.setAttribute("ai.call.response.length", responseContent.length);
+        span.setAttribute("ai.call.response.preview", responseContent.substring(0, 1000));
+        span.setAttribute("ai.call.has_response", true);
+      }
+
       // Return response in OpenAI-compatible format for backward compatibility
       return {
         choices: [
@@ -285,6 +331,17 @@ export async function makeAICall(
       };
     } catch (error) {
       const errorMsg = String(error);
+
+      // Add error information to span if provided
+      if (options.span) {
+        const span = options.span;
+        span.setAttribute("ai.call.success", false);
+        span.setAttribute("ai.call.error.message", errorMsg);
+        span.setAttribute("ai.call.error.attempt", attempt);
+        if (error instanceof Error) {
+          span.recordException?.(error);
+        }
+      }
 
       // Enhanced error logging for schema validation failures
       if (NoObjectGeneratedError.isInstance(error)) {

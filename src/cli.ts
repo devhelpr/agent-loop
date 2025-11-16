@@ -187,8 +187,19 @@ async function main() {
   }
 
   try {
-    const result = await withSpan("agent.run", () =>
-      runCodingAgent(userPrompt, {
+    const result = await withSpan("agent.cli.run", async (span) => {
+      if (span) {
+        span.setAttribute("agent.cli.user_prompt", userPrompt.substring(0, 500));
+        span.setAttribute("agent.cli.user_prompt_length", userPrompt.length);
+        span.setAttribute("agent.cli.max_steps", maxSteps);
+        span.setAttribute("agent.cli.max_writes", maxWrites);
+        span.setAttribute("agent.cli.max_commands", maxCommands);
+        span.setAttribute("agent.cli.provider", provider);
+        span.setAttribute("agent.cli.model", options.model || "default");
+        span.setAttribute("agent.cli.test_command", JSON.stringify(testCommand));
+        span.setAttribute("agent.cli.timeout_seconds", timeoutSeconds);
+      }
+      return await runCodingAgent(userPrompt, {
         maxSteps,
         hardCaps: {
           maxWrites,
@@ -198,8 +209,8 @@ async function main() {
         logging,
         aiProvider: provider,
         aiModel: options.model,
-      })
-    );
+      });
+    });
 
     // Clear timeout since we completed successfully
     if (timeoutId) {

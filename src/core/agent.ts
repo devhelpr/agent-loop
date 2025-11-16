@@ -66,8 +66,20 @@ export async function runCodingAgent(
     aiModel?: string;
   }
 ) {
-  // Reset token statistics for this run
-  resetTokenStats();
+  return await withSpan("agent.run", async (span) => {
+    if (span) {
+      span.setAttribute("agent.user_goal", userGoal.substring(0, 500));
+      span.setAttribute("agent.user_goal_length", userGoal.length);
+      span.setAttribute("agent.max_steps", opts?.maxSteps ?? 20);
+      span.setAttribute("agent.max_writes", opts?.hardCaps?.maxWrites ?? 10);
+      span.setAttribute("agent.max_cmds", opts?.hardCaps?.maxCmds ?? 20);
+      span.setAttribute("agent.provider", opts?.aiProvider || "openai");
+      span.setAttribute("agent.model", opts?.aiModel || "default");
+      span.setAttribute("agent.test_command", JSON.stringify(opts?.testCommand || { cmd: "npm", args: ["test", "--silent"] }));
+    }
+    
+    // Reset token statistics for this run
+    resetTokenStats();
 
   const maxSteps = opts?.maxSteps ?? 20;
   const testCmd = opts?.testCommand ?? {
@@ -197,15 +209,47 @@ When ready to speak to the user, choose final_answer.
     let decisionResp: Awaited<ReturnType<typeof makeAICallWithSchema>>;
 
     try {
-      decisionResp = await withSpan("ai.call", () =>
-        makeAICallWithSchema(transcript, DecisionSchema, logConfig, {
+      const systemMessage = transcript.find((m) => m.role === "system");
+      const userMessages = transcript.filter((m) => m.role !== "system");
+      
+      decisionResp = await withSpan("ai.call", async (span) => {
+        if (span) {
+          span.setAttribute("ai.step", step);
+          span.setAttribute("ai.max_steps", maxSteps);
+          span.setAttribute("ai.provider", opts?.aiProvider || "openai");
+          span.setAttribute("ai.model", opts?.aiModel || "default");
+          span.setAttribute("ai.transcript_length", transcript.length);
+          span.setAttribute("ai.message_count", transcript.length);
+          span.setAttribute("ai.system_prompt_length", systemMessage?.content.length || 0);
+          span.setAttribute("ai.system_prompt_preview", systemMessage?.content.substring(0, 500) || "");
+          span.setAttribute("ai.user_goal", transcript.find((m) => m.role === "user")?.content.substring(0, 200) || "");
+          span.setAttribute("ai.schema_type", "DecisionSchema");
+          span.setAttribute("ai.max_retries", 3);
+          span.setAttribute("ai.timeout_ms", 120000);
+          span.setAttribute("ai.truncate_transcript", true);
+          span.setAttribute("agent.writes", writes);
+          span.setAttribute("agent.cmds", cmds);
+        }
+        const result = await makeAICallWithSchema(transcript, DecisionSchema, logConfig, {
           maxRetries: 3,
           timeoutMs: 120000, // 2 minutes
           truncateTranscript: true,
           provider: opts?.aiProvider,
           model: opts?.aiModel,
-        })
-      );
+          span, // Pass span to makeAICall
+        });
+        if (span && result.usage) {
+          span.setAttribute("ai.tokens.input", result.usage.prompt_tokens || 0);
+          span.setAttribute("ai.tokens.output", result.usage.completion_tokens || 0);
+          span.setAttribute("ai.tokens.total", result.usage.total_tokens || 0);
+        }
+        if (span && result.choices?.[0]?.message?.content) {
+          const content = result.choices[0].message.content;
+          span.setAttribute("ai.response.length", content.length);
+          span.setAttribute("ai.response.preview", content.substring(0, 500));
+        }
+        return result;
+      });
     } catch (error) {
       logError(logConfig, "AI API call failed after all retries", error);
 
@@ -214,6 +258,21 @@ When ready to speak to the user, choose final_answer.
 
       // Display token summary even on error
       displayTokenSummary(tokenStats);
+
+      // Error is already recorded by withSpan's error handling
+      // Add error info to agent.run span via a nested span
+      await withSpan("agent.error", async (errorSpan) => {
+        if (errorSpan) {
+          errorSpan.setAttribute("agent.error.step", step);
+          errorSpan.setAttribute("agent.error.type", "ai_call_failed");
+          errorSpan.setAttribute("agent.error.message", String(error));
+          errorSpan.setAttribute("agent.error.total_tokens", tokenStats.totalTokens);
+          errorSpan.setAttribute("agent.error.total_calls", tokenStats.totalCalls);
+          if (error instanceof Error) {
+            errorSpan.recordException?.(error);
+          }
+        }
+      });
 
       return {
         steps: step,
@@ -308,6 +367,20 @@ When ready to speak to the user, choose final_answer.
       decision: decision,
     });
 
+    // Trace the decision made
+    await withSpan("agent.decision", async (span) => {
+      if (span) {
+        span.setAttribute("agent.step", step);
+        span.setAttribute("agent.decision.action", decision.action);
+        span.setAttribute("agent.decision.rationale", decision.rationale || "");
+        if (decision.action !== "final_answer" && decision.tool_input) {
+          span.setAttribute("agent.decision.tool_input", JSON.stringify(decision.tool_input));
+        }
+        span.setAttribute("agent.writes", writes);
+        span.setAttribute("agent.cmds", cmds);
+      }
+    });
+
     if (decision.action === "final_answer") {
       log(logConfig, "step", "Agent chose final_answer - generating summary");
       // Produce a succinct status + next steps for the user
@@ -322,8 +395,20 @@ When ready to speak to the user, choose final_answer.
           },
         ];
 
-        final = await withSpan("ai.summary", () =>
-          makeAICallWithSchema(
+        final = await withSpan("ai.summary", async (span) => {
+          if (span) {
+            span.setAttribute("ai.summary.step", step);
+            span.setAttribute("ai.summary.provider", opts?.aiProvider || "openai");
+            span.setAttribute("ai.summary.model", opts?.aiModel || "default");
+            span.setAttribute("ai.summary.message_count", summaryMessages.length);
+            span.setAttribute("ai.summary.max_retries", 2);
+            span.setAttribute("ai.summary.timeout_ms", 60000);
+            span.setAttribute("ai.summary.truncate_transcript", false);
+            span.setAttribute("agent.total_steps", step);
+            span.setAttribute("agent.final_writes", writes);
+            span.setAttribute("agent.final_cmds", cmds);
+          }
+          const result = await makeAICallWithSchema(
             summaryMessages,
             z
               .object({
@@ -337,9 +422,21 @@ When ready to speak to the user, choose final_answer.
               truncateTranscript: false,
               provider: opts?.aiProvider,
               model: opts?.aiModel,
+              span, // Pass span to makeAICall
             }
-          )
-        );
+          );
+          if (span && result.usage) {
+            span.setAttribute("ai.summary.tokens.input", result.usage.prompt_tokens || 0);
+            span.setAttribute("ai.summary.tokens.output", result.usage.completion_tokens || 0);
+            span.setAttribute("ai.summary.tokens.total", result.usage.total_tokens || 0);
+          }
+          if (span && result.choices?.[0]?.message?.content) {
+            const summary = result.choices[0].message.content;
+            span.setAttribute("ai.summary.response.length", summary.length);
+            span.setAttribute("ai.summary.response.preview", summary.substring(0, 500));
+          }
+          return result;
+        });
       } catch (summaryError) {
         logError(
           logConfig,
@@ -367,6 +464,16 @@ When ready to speak to the user, choose final_answer.
 
       // Display token summary
       displayTokenSummary(tokenStats);
+
+      if (span) {
+        span.setAttribute("agent.completed", true);
+        span.setAttribute("agent.reason", "final_answer");
+        span.setAttribute("agent.final_steps", step);
+        span.setAttribute("agent.final_writes", writes);
+        span.setAttribute("agent.final_cmds", cmds);
+        span.setAttribute("agent.total_tokens", tokenStats.totalTokens);
+        span.setAttribute("agent.total_calls", tokenStats.totalCalls);
+      }
 
       return result;
     }
@@ -435,10 +542,22 @@ When ready to speak to the user, choose final_answer.
     });
   }
 
-  const result = {
-    steps: maxSteps,
-    message: "Max steps reached without finalization.",
-  };
-  log(logConfig, "step", "Agent reached max steps without completion", result);
-  return result;
+    const result = {
+      steps: maxSteps,
+      message: "Max steps reached without finalization.",
+    };
+    log(logConfig, "step", "Agent reached max steps without completion", result);
+    
+    if (span) {
+      span.setAttribute("agent.completed", false);
+      span.setAttribute("agent.reason", "max_steps_reached");
+      span.setAttribute("agent.final_writes", writes);
+      span.setAttribute("agent.final_cmds", cmds);
+      const tokenStats = getTokenStats();
+      span.setAttribute("agent.total_tokens", tokenStats.totalTokens);
+      span.setAttribute("agent.total_calls", tokenStats.totalCalls);
+    }
+    
+    return result;
+  });
 }
