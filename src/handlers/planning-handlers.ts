@@ -4,6 +4,7 @@ import { create_plan, analyze_project } from "../tools";
 import { createPlanWithAI, analyzeProjectWithAI } from "../ai/api-calls";
 import { MessageArray } from "../types/handlers";
 import { AIProvider } from "../ai/ai-client";
+import { withSpan } from "../utils/observability";
 
 export async function handleCreatePlan(
   decision: Decision,
@@ -31,22 +32,50 @@ export async function handleCreatePlan(
         hasProjectContext: !!decision.tool_input.project_context,
       });
 
-      out = await createPlanWithAI(
-        userGoal,
-        decision.tool_input.project_context,
-        logConfig,
-        { provider: aiProvider }
-      );
+      out = await withSpan("tool.create_plan", async (span) => {
+        if (span) {
+          span.setAttribute("tool.name", "create_plan");
+          span.setAttribute("tool.input.mode", "ai_powered");
+          span.setAttribute("tool.input.has_user_goal", true);
+          span.setAttribute("tool.input.has_project_context", !!decision.tool_input.project_context);
+          span.setAttribute("tool.input.user_goal_preview", userGoal.substring(0, 200));
+        }
+        const result = await createPlanWithAI(
+          userGoal,
+          decision.tool_input.project_context,
+          logConfig,
+          { provider: aiProvider }
+        );
+        if (span) {
+          span.setAttribute("tool.output.step_count", result.steps.length);
+          span.setAttribute("tool.output.required_steps_count", result.steps.filter((s) => s.required).length);
+        }
+        return result;
+      });
     } else {
       log(logConfig, "planning", "Using basic planning (no user goal found)", {
         planSteps: decision.tool_input.plan_steps,
       });
 
-      out = await create_plan(
-        decision.tool_input.plan_steps || [],
-        decision.tool_input.project_context,
-        userGoal
-      );
+      out = await withSpan("tool.create_plan", async (span) => {
+        if (span) {
+          span.setAttribute("tool.name", "create_plan");
+          span.setAttribute("tool.input.mode", "basic");
+          span.setAttribute("tool.input.has_user_goal", false);
+          span.setAttribute("tool.input.plan_steps_count", (decision.tool_input.plan_steps || []).length);
+          span.setAttribute("tool.input.has_project_context", !!decision.tool_input.project_context);
+        }
+        const result = await create_plan(
+          decision.tool_input.plan_steps || [],
+          decision.tool_input.project_context,
+          userGoal
+        );
+        if (span) {
+          span.setAttribute("tool.output.step_count", result.steps.length);
+          span.setAttribute("tool.output.required_steps_count", result.steps.filter((s) => s.required).length);
+        }
+        return result;
+      });
     }
   } catch (error) {
     log(logConfig, "tool-error", "create_plan failed", {
@@ -135,7 +164,20 @@ export async function handleAnalyzeProject(
     const scanDirectories = decision.tool_input.scan_directories || ["."];
 
     // First run the basic project analysis to get file information
-    const basicAnalysis = await analyze_project(scanDirectories);
+    const basicAnalysis = await withSpan("tool.analyze_project.basic", async (span) => {
+      if (span) {
+        span.setAttribute("tool.name", "analyze_project");
+        span.setAttribute("tool.input.mode", "basic");
+        span.setAttribute("tool.input.scan_directories", JSON.stringify(scanDirectories));
+      }
+      const result = await analyze_project(scanDirectories);
+      if (span) {
+        span.setAttribute("tool.output.main_files_count", result.mainFiles.length);
+        span.setAttribute("tool.output.config_files_count", result.configFiles.length);
+        span.setAttribute("tool.output.language", result.language || "unknown");
+      }
+      return result;
+    });
 
     log(logConfig, "project-analysis", "Using AI-powered project analysis", {
       scanDirectories,
@@ -144,12 +186,30 @@ export async function handleAnalyzeProject(
     });
 
     // Use AI-powered analysis with the file information from basic analysis
-    out = await analyzeProjectWithAI(
-      scanDirectories,
-      [...basicAnalysis.mainFiles, ...basicAnalysis.configFiles],
-      logConfig,
-      { provider: aiProvider }
-    );
+    out = await withSpan("tool.analyze_project.ai", async (span) => {
+      if (span) {
+        span.setAttribute("tool.name", "analyze_project");
+        span.setAttribute("tool.input.mode", "ai_powered");
+        span.setAttribute("tool.input.scan_directories", JSON.stringify(scanDirectories));
+        span.setAttribute("tool.input.file_count", basicAnalysis.mainFiles.length + basicAnalysis.configFiles.length);
+      }
+      const result = await analyzeProjectWithAI(
+        scanDirectories,
+        [...basicAnalysis.mainFiles, ...basicAnalysis.configFiles],
+        logConfig,
+        { provider: aiProvider }
+      );
+      if (span) {
+        span.setAttribute("tool.output.language", result.language || "unknown");
+        span.setAttribute("tool.output.project_type", result.projectType || "unknown");
+        span.setAttribute("tool.output.build_tools_count", result.buildTools.length);
+        span.setAttribute("tool.output.main_files_count", result.mainFiles.length);
+        span.setAttribute("tool.output.config_files_count", result.configFiles.length);
+        span.setAttribute("tool.output.has_typescript", result.hasTypeScript);
+        span.setAttribute("tool.output.has_react", result.hasReact);
+      }
+      return result;
+    });
   } catch (error) {
     log(logConfig, "tool-error", "analyze_project failed", {
       error: String(error),
@@ -162,7 +222,20 @@ export async function handleAnalyzeProject(
         scanDirectories: decision.tool_input.scan_directories,
       });
 
-      out = await analyze_project(decision.tool_input.scan_directories);
+      out = await withSpan("tool.analyze_project.fallback", async (span) => {
+        if (span) {
+          span.setAttribute("tool.name", "analyze_project");
+          span.setAttribute("tool.input.mode", "fallback_basic");
+          span.setAttribute("tool.input.scan_directories", JSON.stringify(decision.tool_input.scan_directories));
+        }
+        const result = await analyze_project(decision.tool_input.scan_directories);
+        if (span) {
+          span.setAttribute("tool.output.language", result.language || "unknown");
+          span.setAttribute("tool.output.main_files_count", result.mainFiles.length);
+          span.setAttribute("tool.output.config_files_count", result.configFiles.length);
+        }
+        return result;
+      });
     } catch (fallbackError) {
       log(logConfig, "tool-error", "Basic analyze_project also failed", {
         error: String(fallbackError),
