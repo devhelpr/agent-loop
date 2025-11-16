@@ -3,19 +3,24 @@
   If env JAEGER_OBS_ENABLED !== "true" or deps are missing, everything is a no-op.
 */
 
-type OtelNodeSdk = any;
-type OtelTraceExporter = any;
-type OtelPromExporter = any;
-type OtelResources = any;
-type OtelSemantic = any;
+// Import types from OpenTelemetry packages (type-only imports are safe for optional dependencies)
+import type { Tracer, Span, Meter, SpanKind } from "@opentelemetry/api";
+import type { NodeSDK as NodeSDKType } from "@opentelemetry/sdk-node";
+
+// Extend NodeSDK type to include optional forceFlush method
+type NodeSDK = NodeSDKType & { forceFlush?(): Promise<void> };
+import type { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import type { Resource } from "@opentelemetry/resources";
+import type { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
+import type { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
+// UndiciInstrumentation is optional - define as fallback type since package may not be installed
+type UndiciInstrumentation = { [key: string]: unknown };
 
 let initialized = false;
-let tracer: any = null;
-let meter: any = null;
-let sdk: any = null;
-let traceExporter: any = null;
-let metricExporter: any = null;
-let savedOtlpHeaders: Record<string, string> = {};
+let tracer: Tracer | null = null;
+let meter: Meter | null = null;
+let sdk: NodeSDK | null = null;
+let traceExporter: OTLPTraceExporter | null = null;
 let savedJaegerEndpoint: string = "";
 
 // Export function to get the saved Jaeger endpoint
@@ -89,33 +94,34 @@ export async function initObservability(config?: ObservabilityConfig) {
 
   try {
     const [
-      { NodeSDK },
-      { OTLPTraceExporter },
-      { Resource },
-      { SemanticResourceAttributes },
-      { trace, SpanKind },
-      HttpInstrumentationModule,
-      UndiciInstrumentationModule,
+      sdkNodeModule,
+      traceExporterModule,
+      resourcesModule,
+      semanticConventionsModule,
+      apiModule,
+      httpInstrumentationModule,
+      undiciInstrumentationModule,
     ] = await Promise.all([
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/sdk-node") as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/exporter-trace-otlp-http") as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/resources") as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/semantic-conventions") as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/api") as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/instrumentation-http").catch(() => null) as any,
-      // @ts-ignore: optional dependency may be missing during type-check
-      import("@opentelemetry/instrumentation-undici").catch(() => null) as any,
+      import("@opentelemetry/sdk-node") as Promise<{ NodeSDK: new (config?: any) => NodeSDK }>,
+      import("@opentelemetry/exporter-trace-otlp-http") as Promise<{ OTLPTraceExporter: new (config?: { url?: string }) => OTLPTraceExporter }>,
+      import("@opentelemetry/resources") as Promise<{ Resource: new (attributes: Record<string, any>) => Resource }>,
+      import("@opentelemetry/semantic-conventions") as Promise<{ SemanticResourceAttributes: { SERVICE_NAME: string; SERVICE_VERSION: string; [key: string]: string } }>,
+      import("@opentelemetry/api") as Promise<{ trace: { getTracer: (name: string) => Tracer }, SpanKind: typeof SpanKind }>,
+      import("@opentelemetry/instrumentation-http").catch(() => null) as Promise<{ HttpInstrumentation: new () => HttpInstrumentation } | null>,
+      (import("@opentelemetry/instrumentation-undici" as string).catch(() => null) as Promise<{ UndiciInstrumentation?: new () => UndiciInstrumentation } | null>),
     ]);
 
+    const { NodeSDK } = sdkNodeModule as { NodeSDK: new (config?: any) => NodeSDK };
+    const { OTLPTraceExporter } = traceExporterModule as { OTLPTraceExporter: new (config?: { url?: string }) => OTLPTraceExporter };
+    const { Resource } = resourcesModule as { Resource: new (attributes: Record<string, any>) => Resource };
+    const { SemanticResourceAttributes } = semanticConventionsModule as {
+      SemanticResourceAttributes: { SERVICE_NAME: string; SERVICE_VERSION: string; [key: string]: string };
+    };
+    const { trace, SpanKind: SpanKindEnum } = apiModule as { trace: { getTracer: (name: string) => Tracer }, SpanKind: typeof SpanKind };
+
     // Extract instrumentations if available
-    const HttpInstrumentation = HttpInstrumentationModule?.HttpInstrumentation;
-    const UndiciInstrumentation = UndiciInstrumentationModule?.UndiciInstrumentation;
+    const HttpInstrumentationClass = (httpInstrumentationModule as { HttpInstrumentation: new () => HttpInstrumentation } | null)?.HttpInstrumentation;
+    const UndiciInstrumentationClass = (undiciInstrumentationModule as { UndiciInstrumentation?: new () => UndiciInstrumentation } | null)?.UndiciInstrumentation;
 
     const resource = new Resource({
       [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
@@ -133,12 +139,12 @@ export async function initObservability(config?: ObservabilityConfig) {
     // Jaeger only accepts traces, not metrics or logs
 
     // Build instrumentations array
-    const instrumentations: any[] = [];
-    if (HttpInstrumentation) {
-      instrumentations.push(new HttpInstrumentation());
+    const instrumentations: Array<InstanceType<typeof HttpInstrumentation> | UndiciInstrumentation> = [];
+    if (HttpInstrumentationClass) {
+      instrumentations.push(new HttpInstrumentationClass());
     }
-    if (UndiciInstrumentation) {
-      instrumentations.push(new UndiciInstrumentation());
+    if (UndiciInstrumentationClass) {
+      instrumentations.push(new UndiciInstrumentationClass());
     }
 
     sdk = new NodeSDK({
@@ -171,9 +177,9 @@ export async function initObservability(config?: ObservabilityConfig) {
           await tracer.startActiveSpan(
             "observability.initialization.test",
             {
-              kind: SpanKind?.INTERNAL ?? 1,
+              kind: SpanKindEnum?.INTERNAL ?? 1,
             },
-          async (testSpan: any) => {
+          async (testSpan: Span) => {
             testSpan.setAttribute("test", true);
             testSpan.setAttribute("initialization.check", "passed");
             testSpan.end();
@@ -245,9 +251,9 @@ export async function initObservability(config?: ObservabilityConfig) {
           await tracer.startActiveSpan(
             "observability.connection.test",
             {
-              kind: SpanKind?.INTERNAL ?? 1,
+              kind: SpanKindEnum?.INTERNAL ?? 1,
             },
-            async (testSpan: any) => {
+            async (testSpan: Span) => {
               testSpan.setAttribute("test", true);
               testSpan.setAttribute("connection.test", "startup");
               testSpan.setAttribute("timestamp", Date.now());
@@ -257,7 +263,7 @@ export async function initObservability(config?: ObservabilityConfig) {
 
           // Try multiple methods to force immediate flush
           let flushSuccess = false;
-          let flushError: any = null;
+          let flushError: unknown = null;
 
           // Method 1: Try SDK's forceFlush if available
           if (sdk && typeof sdk.forceFlush === "function") {
@@ -327,7 +333,7 @@ export async function initObservability(config?: ObservabilityConfig) {
                   errorDetails.push(`HTTP status code: ${flushError.statusCode}`);
                 }
                 if ("response" in flushError) {
-                  const response = (flushError as any).response;
+                  const response = (flushError as { response?: unknown }).response;
                   if (response) {
                     if (typeof response === "string") {
                       errorDetails.push(`Response: ${response.substring(0, 200)}`);
@@ -349,7 +355,7 @@ export async function initObservability(config?: ObservabilityConfig) {
           } else {
             console.log(`   ✅ Connection test successful - authentication verified`);
           }
-        } catch (testErr: any) {
+        } catch (testErr: unknown) {
           const errorMessage =
             testErr instanceof Error ? testErr.message : String(testErr);
 
@@ -432,11 +438,11 @@ export async function initObservability(config?: ObservabilityConfig) {
   }
 }
 
-export function getTracer() {
+export function getTracer(): Tracer | null {
   return tracer;
 }
 
-export function getMeter() {
+export function getMeter(): Meter | null {
   return meter;
 }
 
@@ -473,7 +479,7 @@ export async function verifyObservability(): Promise<{
         {
           kind: 1, // SpanKind.INTERNAL
         },
-        async (testSpan: any) => {
+        async (testSpan: Span) => {
           testSpan.setAttribute("verification.test", true);
           testSpan.setAttribute("timestamp", Date.now());
           testSpan.end();
@@ -497,7 +503,7 @@ export async function verifyObservability(): Promise<{
 
 export async function withSpan<T>(
   name: string,
-  fn: (span?: any) => Promise<T> | T
+  fn: (span?: Span) => Promise<T> | T
 ): Promise<T> {
   if (!tracer) {
     return await fn();
@@ -512,14 +518,16 @@ export async function withSpan<T>(
   }
 
   try {
-    return await tracer.startActiveSpan(name, async (span: any) => {
+    return await tracer.startActiveSpan(name, async (span: Span) => {
       try {
         const res = await fn(span);
         span.setAttribute("success", true);
         span.end();
         return res;
-      } catch (e: any) {
-        span.recordException?.(e);
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          span.recordException?.(e);
+        }
         span.setAttribute("success", false);
         span.setAttribute(
           "error.message",
@@ -533,7 +541,7 @@ export async function withSpan<T>(
         throw e;
       }
     });
-  } catch (spanError: any) {
+  } catch (spanError: unknown) {
     // If span creation fails, log but don't break the application
     console.error(
       `⚠️  Failed to create span "${name}": ${
@@ -559,7 +567,7 @@ export async function recordErrorSpan(
   }
 
   try {
-    await tracer.startActiveSpan(`error.${context}`, async (span: any) => {
+    await tracer.startActiveSpan(`error.${context}`, async (span: Span) => {
       span.setAttribute("error.type", "error_span");
       span.setAttribute("error.context", context);
       
@@ -634,7 +642,7 @@ export async function shutdownObservability(): Promise<void> {
     // Jaeger exporter doesn't use headers - no header restoration needed
     // Metrics are disabled - only flushing traces
     // Try to flush traces with timeout
-    const flushPromises: Promise<any>[] = [];
+    const flushPromises: Promise<unknown>[] = [];
     
     // Flush traces if we have a trace exporter
     if (traceExporter && typeof sdk.forceFlush === "function") {
