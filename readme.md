@@ -327,4 +327,4 @@ docker run --rm --name jaeger \
 
 - Ollama is a great way to run local models and helpful for testing and development.
 
-- Using Observability is helpful for tracing the agent's execution and debugging.
+- Using Observability is helpful for tracing the agent's execution and debugging. Jaeger runs locally and is easy to set up using Docker.
