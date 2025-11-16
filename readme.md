@@ -6,6 +6,8 @@ This project is a simple coding agent implemented with an Agent Loop architectur
 
 It runs AI LLM calls in a loop using Vercel's AI SDK v5 and depending on the response, it can read files, search the repo, write patches, run commands, and evaluate work quality. The agent continues this loop until it reaches a final answer or a maximum number of iterations.
 
+It has OpenTelemetry-based observability for tracing using Jaeger.
+
 ## Supported AI Providers
 
 The agent supports multiple AI providers through Vercel's AI SDK v5:
