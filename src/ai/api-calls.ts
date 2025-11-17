@@ -374,7 +374,13 @@ export async function makeAICall(
 
             // Try to repair and parse the generated text
             const repairedText = repairMalformedJSON(error.text);
-            const parsedText = JSON.parse(repairedText);
+            let parsedText = JSON.parse(repairedText);
+            
+            // Try to repair plan steps if this looks like a planning schema
+            // Check if it has a steps array (indicating it might be a planning schema)
+            if (parsedText && Array.isArray(parsedText.steps)) {
+              parsedText = repairPlanSteps(parsedText);
+            }
 
             // Validate against the schema manually
             const validatedObject = schema.parse(parsedText);
@@ -430,6 +436,56 @@ export async function makeAICall(
   }
 
   throw new Error("All retry attempts failed");
+}
+
+// Helper function to repair plan steps missing the required field
+// This is a safety net in case the AI SDK doesn't fully enforce the schema
+function repairPlanSteps(data: any): any {
+  if (data && Array.isArray(data.steps)) {
+    const repairedSteps = data.steps.map((step: any, index: number) => {
+      // Ensure dependencies is always an array
+      const dependencies = Array.isArray(step.dependencies) ? step.dependencies : [];
+      
+      // If required field is missing, try to extract it from the step text
+      if (step.required === undefined || step.required === null) {
+        const stepText = step.step || "";
+        // Check if step text contains "Required:" or "Optional:" indicators
+        const isRequired = /required/i.test(stepText) && !/optional/i.test(stepText);
+        const isOptional = /optional/i.test(stepText);
+        
+        // Clean up the step text by removing prefixes like "S1 — Required:" or "Required:"
+        const cleanedStep = stepText
+          .replace(/^S\d+\s*[—–-]\s*(Required|Optional):\s*/i, "")
+          .replace(/^(Required|Optional):\s*/i, "")
+          .trim();
+        
+        return {
+          step: cleanedStep || stepText,
+          required: isRequired || !isOptional, // Default to required if unclear
+          dependencies,
+        };
+      }
+      
+      // Clean up step text even if required field is present
+      const stepText = step.step || "";
+      const cleanedStep = stepText
+        .replace(/^S\d+\s*[—–-]\s*(Required|Optional):\s*/i, "")
+        .replace(/^(Required|Optional):\s*/i, "")
+        .trim();
+      
+      return {
+        step: cleanedStep || stepText,
+        required: step.required,
+        dependencies,
+      };
+    });
+    
+    return {
+      ...data,
+      steps: repairedSteps,
+    };
+  }
+  return data;
 }
 
 // Helper function to repair malformed JSON responses
@@ -551,27 +607,39 @@ export async function createPlanWithAI(
   logConfig: LogConfig = { enabled: true, logSteps: true },
   options: ApiCallOptions = {}
 ): Promise<ExecutionPlan> {
-  const planStepSchema = z.object({
-    step: z.string().describe("Clear description of the step to be executed"),
-    required: z
-      .boolean()
-      .describe("Whether this step is required to achieve the user's goal"),
-    dependencies: z
-      .array(z.string())
-      .optional()
-      .describe("Array of step IDs that must be completed before this step"),
-  });
+  // Define strict schema with explicit required fields
+  const planStepSchema = z
+    .object({
+      step: z
+        .string()
+        .min(1)
+        .describe("Clear description of the step to be executed"),
+      required: z
+        .boolean()
+        .describe("Whether this step is required to achieve the user's goal. Must be true or false."),
+      dependencies: z
+        .array(z.string())
+        .optional()
+        .describe("Array of step IDs that must be completed before this step"),
+    })
+    .strict(); // Prevent extra fields
 
-  const planningSchema = z.object({
-    steps: z
-      .array(planStepSchema)
-      .describe("Array of plan steps in execution order"),
-    projectContext: z
-      .string()
-      .optional()
-      .describe("Summary of project context and technology stack"),
-    userGoal: z.string().describe("The user's goal that this plan addresses"),
-  });
+  const planningSchema = z
+    .object({
+      steps: z
+        .array(planStepSchema)
+        .min(1)
+        .describe("Array of plan steps in execution order"),
+      projectContext: z
+        .string()
+        .optional()
+        .describe("Summary of project context and technology stack"),
+      userGoal: z
+        .string()
+        .min(1)
+        .describe("The user's goal that this plan addresses"),
+    })
+    .strict(); // Prevent extra fields
 
   const messages = [
     {
@@ -609,12 +677,22 @@ Please analyze this goal and create a detailed, executable plan with clear steps
 
   const planData = JSON.parse(response.choices[0].message.content);
 
+  // Repair steps that might be missing the required field
+  const repairedPlanData = repairPlanSteps(planData);
+  
+  // Log if any repairs were made
+  if (repairedPlanData !== planData) {
+    log(logConfig, "planning", "Repaired plan steps with missing required fields", {
+      stepCount: repairedPlanData.steps.length,
+    });
+  }
+
   // Convert to ExecutionPlan format
   const executionPlan: ExecutionPlan = {
-    steps: planData.steps,
-    projectContext: planData.projectContext || projectContext,
+    steps: repairedPlanData.steps,
+    projectContext: repairedPlanData.projectContext || projectContext,
     createdAt: new Date(),
-    userGoal: planData.userGoal || userGoal,
+    userGoal: repairedPlanData.userGoal || userGoal,
   };
 
   log(logConfig, "planning", "AI-generated plan created successfully", {
