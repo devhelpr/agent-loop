@@ -124,78 +124,143 @@ When ready to speak to the user, choose final_answer.
   ];
 
   // Planning phase: Analyze project and create plan for complex tasks
-  log(logConfig, "step", "=== Planning Phase ===");
+  await withSpan("agent.planning_phase", async (planningSpan) => {
+    if (planningSpan) {
+      planningSpan.setAttribute("agent.planning.user_goal_length", userGoal.length);
+      planningSpan.setAttribute("agent.planning.user_goal_preview", userGoal.substring(0, 200));
+    }
 
-  // Always analyze the project first
-  const analyzeDecision: Decision = {
-    action: "analyze_project",
-    tool_input: { scan_directories: ["."] },
-    rationale: "Analyzing project structure before starting work",
-  };
+    log(logConfig, "step", "=== Planning Phase ===");
 
-  await handleAnalyzeProject(
-    analyzeDecision,
-    transcript,
-    logConfig,
-    opts?.aiProvider
-  );
-
-  // For complex tasks, create a structured plan
-  const isComplexTask =
-    userGoal.length > 100 ||
-    userGoal.toLowerCase().includes("implement") ||
-    userGoal.toLowerCase().includes("create") ||
-    userGoal.toLowerCase().includes("build") ||
-    (userGoal.toLowerCase().includes("add") &&
-      userGoal.toLowerCase().includes("feature"));
-
-  if (isComplexTask) {
-    log(logConfig, "step", "Complex task detected, creating execution plan");
-
-    const planDecision: Decision = {
-      action: "create_plan",
-      tool_input: {
-        plan_steps: [
-          {
-            step: "Analyze existing codebase and understand requirements",
-            required: true,
-            dependencies: [],
-          },
-          {
-            step: "Implement core functionality as requested",
-            required: true,
-            dependencies: [
-              "Analyze existing codebase and understand requirements",
-            ],
-          },
-          {
-            step: "Test and validate the implementation",
-            required: true,
-            dependencies: ["Implement core functionality as requested"],
-          },
-          {
-            step: "Add error handling and edge cases",
-            required: false,
-            dependencies: ["Implement core functionality as requested"],
-          },
-          {
-            step: "Optimize and refactor if needed",
-            required: false,
-            dependencies: ["Test and validate the implementation"],
-          },
-        ],
-        project_context: "Project analysis will provide context",
-      },
-      rationale: "Creating structured plan for complex task execution",
+    // Always analyze the project first
+    const analyzeDecision: Decision = {
+      action: "analyze_project",
+      tool_input: { scan_directories: ["."] },
+      rationale: "Analyzing project structure before starting work",
     };
 
-    await handleCreatePlan(
-      planDecision,
-      transcript,
-      logConfig,
-      opts?.aiProvider
-    );
-  }
+    await withSpan("agent.planning.project_analysis", async (analysisSpan) => {
+      if (analysisSpan) {
+        analysisSpan.setAttribute("agent.planning.analysis.scan_directories", JSON.stringify(analyzeDecision.tool_input.scan_directories));
+      }
+      await handleAnalyzeProject(
+        analyzeDecision,
+        transcript,
+        logConfig,
+        opts?.aiProvider
+      );
+    });
+
+    // For complex tasks, create a structured plan
+    // Lowered thresholds to make planning more common
+    const isComplexTask =
+      userGoal.length > 30 ||
+      userGoal.toLowerCase().includes("implement") ||
+      userGoal.toLowerCase().includes("create") ||
+      userGoal.toLowerCase().includes("build") ||
+      userGoal.toLowerCase().includes("add") ||
+      userGoal.toLowerCase().includes("update") ||
+      userGoal.toLowerCase().includes("modify") ||
+      userGoal.toLowerCase().includes("change") ||
+      userGoal.toLowerCase().includes("fix") ||
+      userGoal.toLowerCase().includes("refactor") ||
+      userGoal.toLowerCase().includes("improve") ||
+      userGoal.toLowerCase().includes("feature") ||
+      userGoal.toLowerCase().includes("functionality");
+
+    if (planningSpan) {
+      const lowerGoal = userGoal.toLowerCase();
+      planningSpan.setAttribute("agent.planning.is_complex_task", isComplexTask);
+      planningSpan.setAttribute("agent.planning.complexity_check.length", userGoal.length > 30);
+      planningSpan.setAttribute("agent.planning.complexity_check.has_implement", lowerGoal.includes("implement"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_create", lowerGoal.includes("create"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_build", lowerGoal.includes("build"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_add", lowerGoal.includes("add"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_update", lowerGoal.includes("update"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_modify", lowerGoal.includes("modify"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_change", lowerGoal.includes("change"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_fix", lowerGoal.includes("fix"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_refactor", lowerGoal.includes("refactor"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_improve", lowerGoal.includes("improve"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_feature", lowerGoal.includes("feature"));
+      planningSpan.setAttribute("agent.planning.complexity_check.has_functionality", lowerGoal.includes("functionality"));
+    }
+
+    // Always create a span for plan creation decision, even if skipped
+    await withSpan("agent.planning.create_plan", async (createPlanSpan) => {
+      if (createPlanSpan) {
+        createPlanSpan.setAttribute("agent.planning.plan.executed", isComplexTask);
+        createPlanSpan.setAttribute("agent.planning.plan.is_complex_task", isComplexTask);
+      }
+
+      if (isComplexTask) {
+        log(logConfig, "step", "Complex task detected, creating execution plan");
+
+        const planDecision: Decision = {
+          action: "create_plan",
+          tool_input: {
+            plan_steps: [
+              {
+                step: "Analyze existing codebase and understand requirements",
+                required: true,
+                dependencies: [],
+              },
+              {
+                step: "Implement core functionality as requested",
+                required: true,
+                dependencies: [
+                  "Analyze existing codebase and understand requirements",
+                ],
+              },
+              {
+                step: "Test and validate the implementation",
+                required: true,
+                dependencies: ["Implement core functionality as requested"],
+              },
+              {
+                step: "Add error handling and edge cases",
+                required: false,
+                dependencies: ["Implement core functionality as requested"],
+              },
+              {
+                step: "Optimize and refactor if needed",
+                required: false,
+                dependencies: ["Test and validate the implementation"],
+              },
+            ],
+            project_context: "Project analysis will provide context",
+          },
+          rationale: "Creating structured plan for complex task execution",
+        };
+
+        if (createPlanSpan) {
+          createPlanSpan.setAttribute("agent.planning.plan.has_initial_steps", !!planDecision.tool_input.plan_steps);
+          createPlanSpan.setAttribute("agent.planning.plan.initial_steps_count", planDecision.tool_input.plan_steps?.length || 0);
+          createPlanSpan.setAttribute("agent.planning.plan.has_project_context", !!planDecision.tool_input.project_context);
+        }
+        await handleCreatePlan(
+          planDecision,
+          transcript,
+          logConfig,
+          opts?.aiProvider
+        );
+      } else {
+        log(logConfig, "step", "Simple task detected, skipping execution plan creation");
+        if (createPlanSpan) {
+          createPlanSpan.setAttribute("agent.planning.plan.skip_reason", "task_not_complex");
+          createPlanSpan.setAttribute("agent.planning.plan.user_goal_length", userGoal.length);
+        }
+        if (planningSpan) {
+          planningSpan.setAttribute("agent.planning.plan_created", false);
+          planningSpan.setAttribute("agent.planning.skip_reason", "task_not_complex");
+        }
+      }
+    });
+
+    if (planningSpan) {
+      planningSpan.setAttribute("agent.planning.completed", true);
+    }
+  });
 
   for (let step = 1; step <= maxSteps; step++) {
     log(logConfig, "step", `=== Step ${step}/${maxSteps} ===`, {

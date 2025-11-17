@@ -39,6 +39,10 @@ export async function handleCreatePlan(
           span.setAttribute("tool.input.has_user_goal", true);
           span.setAttribute("tool.input.has_project_context", !!decision.tool_input.project_context);
           span.setAttribute("tool.input.user_goal_preview", userGoal.substring(0, 200));
+          span.setAttribute("tool.input.user_goal_length", userGoal.length);
+          if (decision.tool_input.project_context) {
+            span.setAttribute("tool.input.project_context_preview", decision.tool_input.project_context.substring(0, 200));
+          }
         }
         const result = await createPlanWithAI(
           userGoal,
@@ -49,6 +53,18 @@ export async function handleCreatePlan(
         if (span) {
           span.setAttribute("tool.output.step_count", result.steps.length);
           span.setAttribute("tool.output.required_steps_count", result.steps.filter((s) => s.required).length);
+          span.setAttribute("tool.output.optional_steps_count", result.steps.filter((s) => !s.required).length);
+          span.setAttribute("tool.output.has_project_context", !!result.projectContext);
+          span.setAttribute("tool.output.user_goal", result.userGoal || "");
+          span.setAttribute("tool.output.created_at", result.createdAt.toISOString());
+          // Add step details
+          result.steps.forEach((step, index) => {
+            span.setAttribute(`tool.output.step.${index}.required`, step.required);
+            span.setAttribute(`tool.output.step.${index}.has_dependencies`, !!(step.dependencies && step.dependencies.length > 0));
+            if (step.dependencies && step.dependencies.length > 0) {
+              span.setAttribute(`tool.output.step.${index}.dependencies_count`, step.dependencies.length);
+            }
+          });
         }
         return result;
       });
@@ -73,6 +89,10 @@ export async function handleCreatePlan(
         if (span) {
           span.setAttribute("tool.output.step_count", result.steps.length);
           span.setAttribute("tool.output.required_steps_count", result.steps.filter((s) => s.required).length);
+          span.setAttribute("tool.output.optional_steps_count", result.steps.filter((s) => !s.required).length);
+          span.setAttribute("tool.output.has_project_context", !!result.projectContext);
+          span.setAttribute("tool.output.user_goal", result.userGoal || "");
+          span.setAttribute("tool.output.created_at", result.createdAt.toISOString());
         }
         return result;
       });
@@ -198,6 +218,8 @@ export async function handleAnalyzeProject(
         span.setAttribute("tool.input.mode", "ai_powered");
         span.setAttribute("tool.input.scan_directories", JSON.stringify(scanDirectories));
         span.setAttribute("tool.input.file_count", basicAnalysis.mainFiles.length + basicAnalysis.configFiles.length);
+        span.setAttribute("tool.input.main_files_count", basicAnalysis.mainFiles.length);
+        span.setAttribute("tool.input.config_files_count", basicAnalysis.configFiles.length);
       }
       const result = await analyzeProjectWithAI(
         scanDirectories,
@@ -209,10 +231,17 @@ export async function handleAnalyzeProject(
         span.setAttribute("tool.output.language", result.language || "unknown");
         span.setAttribute("tool.output.project_type", result.projectType || "unknown");
         span.setAttribute("tool.output.build_tools_count", result.buildTools.length);
+        span.setAttribute("tool.output.build_tools", JSON.stringify(result.buildTools));
         span.setAttribute("tool.output.main_files_count", result.mainFiles.length);
         span.setAttribute("tool.output.config_files_count", result.configFiles.length);
         span.setAttribute("tool.output.has_typescript", result.hasTypeScript);
         span.setAttribute("tool.output.has_react", result.hasReact);
+        span.setAttribute("tool.output.has_vue", result.hasVue);
+        span.setAttribute("tool.output.has_angular", result.hasAngular);
+        span.setAttribute("tool.output.package_manager", result.packageManager || "unknown");
+        span.setAttribute("tool.output.test_framework", result.testFramework || "none");
+        span.setAttribute("tool.output.dependencies_count", Object.keys(result.dependencies).length);
+        span.setAttribute("tool.output.dev_dependencies_count", Object.keys(result.devDependencies).length);
       }
       return result;
     });
