@@ -43,8 +43,16 @@ async function findProjectRoot(startDir: string = process.cwd()): Promise<string
 export async function analyze_project(
   scanDirectories: string[] = ["."]
 ): Promise<ProjectAnalysis> {
-  // Find the project root to ensure we don't scan outside the project
+  // Get the current working directory - this is our base for scanning
+  const currentWorkingDir = process.cwd();
+  
+  // Find the project root for reading package.json (may be in parent directory)
   const projectRoot = await findProjectRoot();
+  
+  // Use current working directory as the effective project root for scanning
+  // This ensures we only scan the directory the user is actually in, not parent directories
+  const effectiveProjectRoot = currentWorkingDir;
+  
   const analysis: ProjectAnalysis = {
     language: "unknown",
     projectType: "unknown",
@@ -59,10 +67,22 @@ export async function analyze_project(
     devDependencies: {},
   };
 
-  // Analyze package.json if it exists
+  // Analyze package.json if it exists (check both current dir and found project root)
   try {
-    const packageJsonPath = path.join(projectRoot, "package.json");
-    const packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+    // First try current working directory
+    let packageJsonPath = path.join(currentWorkingDir, "package.json");
+    let packageJson;
+    try {
+      packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+    } catch {
+      // If not in current dir, try the found project root (if different)
+      if (projectRoot !== currentWorkingDir) {
+        packageJsonPath = path.join(projectRoot, "package.json");
+        packageJson = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
+      } else {
+        throw new Error("No package.json found");
+      }
+    }
 
     analysis.dependencies = packageJson.dependencies || {};
     analysis.devDependencies = packageJson.devDependencies || {};
@@ -112,18 +132,19 @@ export async function analyze_project(
 
   // Scan for files to determine language and project structure
   for (const dir of scanDirectories) {
-    // Resolve directory relative to project root, not current working directory
+    // Resolve directory relative to current working directory (not project root)
+    // This ensures "." always refers to the directory the user is actually in
     const resolvedDir = path.isAbsolute(dir)
       ? dir
-      : path.join(projectRoot, dir);
+      : path.join(effectiveProjectRoot, dir);
     const normalizedDir = path.resolve(resolvedDir);
 
-    // Ensure we don't scan outside the project root
-    // Use path.relative to check if directory is within project root
-    const relativePath = path.relative(projectRoot, normalizedDir);
+    // Ensure we don't scan outside the effective project root (current working directory)
+    // Use path.relative to check if directory is within effective project root
+    const relativePath = path.relative(effectiveProjectRoot, normalizedDir);
     if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
       console.warn(
-        `Skipping directory outside project root: ${dir} (resolved to ${normalizedDir})`
+        `Skipping directory outside current working directory: ${dir} (resolved to ${normalizedDir})`
       );
       continue;
     }
